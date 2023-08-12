@@ -1,0 +1,6 @@
+[workspace]
+
+members = [
+    "d4ft4",
+    "d4ft4-gui/src-tauri",
+]
