@@ -33,4 +33,6 @@ function addFunction(app, name, args, callPort, returnPort) {
 
 function initBackend(app) {
     addFunction(app, "add", ({ a, b }) => ({ a, b }), "callAdd", "returnAdd");
+    addFunction(app, "server", ({ password, message }) => ({ password, message }), "callServer", "returnServer");
+    addFunction(app, "client", ({ password, message }) => ({ password, message }), "callClient", "returnClient");
 }
