@@ -14,5 +14,5 @@ scrypt = { version = "0.11", default-features = false }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 thiserror = "1.0"
-tokio = { version = "1.30.0", features = ["net", "io-util"] }
+tokio = { version = "1.31.0", features = ["net", "io-util", "rt", "macros"] }
 typenum = "1.16"

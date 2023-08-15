@@ -124,18 +124,20 @@ impl InitializationVectors {
     }
 }
 
-fn derive_key(password: &str, salt: &[u8; 32]) -> [u8; 32] {
-    let mut key = [69u8; 32];
-    println!("starting key derive");
-    scrypt::scrypt(
-        password.as_bytes(),
-        salt,
-        &scrypt::Params::new(16, 8, 1, 32).expect("Scrypt should not error on hardcoded params"),
-        &mut key,
-    )
-    .expect("Scrypt should not error on hardcoded output length");
-    println!("key derive done");
-    key
+async fn derive_key(password: String, salt: [u8; 32]) -> [u8; 32] {
+    tokio::task::spawn_blocking(move || {
+        let mut key = [69u8; 32];
+        println!("starting key derive");
+        scrypt::scrypt(
+            password.as_bytes(),
+            &salt,
+            &scrypt::Params::new(16, 8, 1, 32).expect("Scrypt should not error on hardcoded params"),
+            &mut key,
+        )
+            .expect("Scrypt should not error on hardcoded output length");
+        println!("key derive done");
+        key
+    }).await.expect("Key derive task should not panic on hardcoded params and should not be cancelled")
 }
 
 pub(crate) struct Encryptor {
@@ -143,11 +145,10 @@ pub(crate) struct Encryptor {
 }
 
 impl Encryptor {
-    pub(crate) fn new(password: &str, salt: &[u8; 32], nonce: &[u8; 19]) -> Self {
-        let key = derive_key(password, salt);
+    pub(crate) async fn new(password: String, salt: [u8; 32], nonce: &[u8; 19]) -> Self {
         Self {
             encryptor: aead::stream::EncryptorBE32::new(
-                &derive_key(password, salt).into(),
+                &derive_key(password, salt).await.into(),
                 nonce.into(),
             ),
         }
@@ -184,10 +185,10 @@ pub(crate) struct Decryptor {
 }
 
 impl Decryptor {
-    pub(crate) fn new(password: &str, salt: &[u8; 32], nonce: &[u8; 19]) -> Self {
+    pub(crate) async fn new(password: String, salt: [u8; 32], nonce: &[u8; 19]) -> Self {
         Self {
             decryptor: aead::stream::DecryptorBE32::new(
-                &derive_key(password, salt).into(),
+                &derive_key(password, salt).await.into(),
                 nonce.into(),
             ),
         }

@@ -12,7 +12,7 @@ pub fn add(left: i32, right: i32) -> i32 {
     left + right
 }
 
-pub async fn server(password: String, message: String) -> D4FTResult<String> {
+pub async fn server(password: String, message: Option<String>) -> D4FTResult<Option<String>> {
     // let mac_length = dbg!(<<chacha20poly1305::XChaCha20Poly1305 as aead::AeadCore>::CiphertextOverhead as typenum::marker_traits::Unsigned>::to_usize());
     // let mut message_bytes = message.clone().bytes().collect::<Vec<_>>();
     // println!("message length: {}", message_bytes.len());
@@ -34,20 +34,28 @@ pub async fn server(password: String, message: String) -> D4FTResult<String> {
         || handshake.mode != protocol::TransferMode::SendText
     {
         encode_plaintext(protocol::HandshakeResponse::Reject { reason: "invalid handshake".to_string() }, &mut socket).await?;
-        return Ok("invalid handshake".to_string());
+        return Ok(Some("invalid handshake".to_string()));
     }
 
     let ivs = encoding::InitializationVectors::from_protocol(handshake.encryption)?;
-    let mut encryptor = encoding::Encryptor::new(&password, &ivs.server_client_salt, &ivs.server_client_nonce);
+    let (mut encryptor, mut decryptor) = tokio::join!(
+        encoding::Encryptor::new(password.clone(), ivs.server_client_salt, &ivs.server_client_nonce),
+        encoding::Decryptor::new(password, ivs.client_server_salt, &ivs.client_server_nonce),
+    );
 
-    let received_message = handshake.message;
+    encryptor.encode(protocol::HandshakeResponse::Accept, &mut socket).await?;
 
-    encryptor.encode(protocol::HandshakeResponse::Accept { message }, &mut socket).await?;
-
-    Ok(received_message)
+    Ok(
+        if let Some(message) = message {
+            encryptor.encode(protocol::SendText(message), &mut socket).await?;
+            None
+        } else {
+            Some(decryptor.decode::<protocol::SendText, _>(&mut socket).await?.0)
+        }
+    )
 }
 
-pub async fn client(password: String, message: String) -> D4FTResult<String> {
+pub async fn client(password: String, message: Option<String>) -> D4FTResult<Option<String>> {
     let mut socket = TcpStream::connect("127.0.0.1:2581").await
         .map_err(|source| D4FTError::SocketError { source })?;
 
@@ -57,17 +65,27 @@ pub async fn client(password: String, message: String) -> D4FTResult<String> {
         version: "4".to_string(),
         encryption: ivs.to_protocol(),
         mode: protocol::TransferMode::SendText,
-        message
     }, &mut socket).await?;
 
-    let mut decryptor = encoding::Decryptor::new(&password, &ivs.server_client_salt, &ivs.server_client_nonce);
+    let (mut decryptor, mut encryptor) = tokio::join!(
+        encoding::Decryptor::new(password.clone(), ivs.server_client_salt, &ivs.server_client_nonce),
+        encoding::Encryptor::new(password, ivs.client_server_salt, &ivs.client_server_nonce),
+    );
 
     let response = decryptor.decode::<protocol::HandshakeResponse, _>(&mut socket).await?;
 
-    match response {
-        protocol::HandshakeResponse::Accept { message } => Ok(message),
-        protocol::HandshakeResponse::Reject { reason } => Ok(format!("handshake rejected: {reason}")),
+    if let protocol::HandshakeResponse::Reject { reason } = response {
+        return Ok(Some(format!("handshake rejected: {reason}")));
     }
+
+    Ok(
+        if let Some(message) = message {
+            encryptor.encode(protocol::SendText(message), &mut socket).await?;
+            None
+        } else {
+            Some(decryptor.decode::<protocol::SendText, _>(&mut socket).await?.0)
+        }
+    )
 }
 
 #[cfg(test)]

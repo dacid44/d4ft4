@@ -13,16 +13,16 @@ port callAdd : { a : Int, b : Int } -> Cmd msg
 port returnAdd : (Int -> msg) -> Sub msg
 
 
-port callServer : { password: String, message: String } -> Cmd msg
+port callServer : { password: String, message: Maybe String } -> Cmd msg
 
 
-port returnServer : (String -> msg) -> Sub msg
+port returnServer : (Maybe String -> msg) -> Sub msg
 
 
-port callClient : { password: String, message: String } -> Cmd msg
+port callClient : { password: String, message: Maybe String } -> Cmd msg
 
 
-port returnClient : (String -> msg) -> Sub msg
+port returnClient : (Maybe String -> msg) -> Sub msg
 
 
 type alias Model =
@@ -54,8 +54,12 @@ view model =
         , div []
             [ input [ type_ "password", placeholder "password", value model.password, onInput PasswordChanged ] []
             , input [ placeholder "message", value model.message, onInput MessageChanged ] []
-            , button [ onClick CallServer ] [ text "set up server and send to client" ]
-            , button [ onClick CallClient ] [ text "set up client and send to server" ]
+            ]
+        , div []
+            [ button [ onClick ServerSend ] [ text "set up server and send to client" ]
+            , button [ onClick ServerReceive ] [ text "set up server and receive from client"]
+            , button [ onClick ClientSend ] [ text "set up client and send to server" ]
+            , button [ onClick ClientReceive ] [ text "set up client and receive from server" ]
             ]
         , div []
             (text "Received from client: "
@@ -76,10 +80,12 @@ type Msg
     | ReturnAdd Int
     | PasswordChanged String
     | MessageChanged String
-    | CallServer
-    | ReturnServer String
-    | CallClient
-    | ReturnClient String
+    | ServerSend
+    | ServerReceive
+    | ReturnServer (Maybe String)
+    | ClientSend
+    | ClientReceive
+    | ReturnClient (Maybe String)
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -110,17 +116,23 @@ update msg model =
         MessageChanged message ->
             ( { model | message = message }, Cmd.none )
 
-        CallServer ->
-            ( model, callServer { password = model.password, message = model.message } )
+        ServerSend ->
+            ( model, callServer { password = model.password, message = Just model.message } )
+        
+        ServerReceive ->
+            ( model, callServer { password = model.password, message = Nothing } )
 
         ReturnServer message ->
-            ( { model | receivedFromClient = Just message }, Cmd.none )
+            ( { model | receivedFromClient = message }, Cmd.none )
 
-        CallClient ->
-            ( model, callClient { password = model.password, message = model.message } )
+        ClientSend ->
+            ( model, callClient { password = model.password, message = Just model.message } )
+
+        ClientReceive ->
+            ( model, callClient { password = model.password, message = Nothing } )
 
         ReturnClient message ->
-            ( { model | receivedFromServer = Just message }, Cmd.none )
+            ( { model | receivedFromServer = message }, Cmd.none )
 
 
 subscriptions : Model -> Sub Msg

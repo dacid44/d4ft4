@@ -14,17 +14,17 @@ fn add(a: i32, b: i32) -> i32 {
 }
 
 #[tauri::command]
-async fn server(password: String, message: String) -> String {
+async fn server(password: String, message: Option<String>) -> Option<String> {
     match d4ft4::server(password, message).await {
         Ok(msg) => msg,
-        Err(e) => format!("Error: {}", e)
+        Err(e) => Some(format!("Error: {}", e)),
     }
 }
 
 #[tauri::command]
-async fn client(password: String, message: String) -> String {
+async fn client(password: String, message: Option<String>) -> Option<String> {
     match d4ft4::client(password, message).await {
         Ok(msg) => msg,
-        Err(e) => format!("Error: {}", e)
+        Err(e) => Some(format!("Error: {}", e)),
     }
 }

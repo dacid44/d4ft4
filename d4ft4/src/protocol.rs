@@ -6,7 +6,6 @@ pub(crate) struct Handshake {
     pub(crate) version: String,
     pub(crate) encryption: EncryptionVars,
     pub(crate) mode: TransferMode,
-    pub(crate) message: String,
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
@@ -34,9 +33,12 @@ pub(crate) enum TransferMode {
     ReceiveFile,
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
 #[serde(tag = "response")]
 pub(crate) enum HandshakeResponse {
-    Accept { message: String },
+    Accept,
     Reject { reason: String },
 }
+
+#[derive(Serialize, Deserialize, Debug)]
+pub(crate) struct SendText(pub(crate) String);
