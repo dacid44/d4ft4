@@ -1,100 +1,276 @@
-mod protocol;
 mod encoding;
 mod error;
+mod protocol;
 
-use tokio::net::{TcpListener, TcpStream};
+use std::path::PathBuf;
 
-use error::{D4FTResult, D4FTError};
+use tokio::{
+    fs,
+    net::{TcpListener, TcpStream, ToSocketAddrs},
+};
+
 use encoding::{decode_plaintext, encode_plaintext};
+use error::{D4FTError, D4FTResult};
 
+pub use protocol::TransferMode;
 
-pub fn add(left: i32, right: i32) -> i32 {
-    left + right
+pub struct Connection {
+    mode: TransferMode,
+    socket: TcpStream,
+    encryptor: encoding::Encryptor,
+    decryptor: encoding::Decryptor,
+}
+
+impl Connection {
+    pub async fn listen<A: ToSocketAddrs>(
+        address: A,
+        mode: TransferMode,
+        password: String,
+    ) -> D4FTResult<Self> {
+        let (mut socket, _) = TcpListener::bind(address)
+            .await
+            .map_err(|source| D4FTError::SocketError { source })?
+            .accept()
+            .await
+            .map_err(|source| D4FTError::SocketError { source })?;
+
+        let handshake = decode_plaintext::<protocol::Handshake, _>(&mut socket).await?;
+
+        let ivs = encoding::InitializationVectors::from_protocol(handshake.encryption)?;
+        let (mut encryptor, mut decryptor) = tokio::join!(
+            encoding::Encryptor::new(
+                password.clone(),
+                ivs.server_client_salt,
+                &ivs.server_client_nonce
+            ),
+            encoding::Decryptor::new(password, ivs.client_server_salt, &ivs.client_server_nonce),
+        );
+
+        if handshake.version != "4" {
+            encryptor
+                .encode(
+                    &protocol::Response::Reject {
+                        reason: "incompatible version".to_string(),
+                    },
+                    &mut socket,
+                )
+                .await?;
+            return Err(D4FTError::RejectedHandshake {
+                reason: "incompatible version".to_string(),
+            });
+        }
+
+        if handshake.mode != mode.corresponding() {
+            encryptor
+                .encode(
+                    &protocol::Response::Reject {
+                        reason: "transfer mode does not match".to_string(),
+                    },
+                    &mut socket,
+                )
+                .await?;
+            return Err(D4FTError::RejectedHandshake {
+                reason: "transfer mode does not match".to_string(),
+            });
+        }
+
+        encryptor
+            .encode(&protocol::Response::Accept, &mut socket)
+            .await?;
+
+        Ok(Self {
+            mode,
+            socket,
+            encryptor,
+            decryptor,
+        })
+    }
+
+    pub async fn connect<A: ToSocketAddrs>(
+        address: A,
+        mode: TransferMode,
+        password: String,
+    ) -> D4FTResult<Self> {
+        let mut socket = TcpStream::connect(address)
+            .await
+            .map_err(|source| D4FTError::SocketError { source })?;
+
+        let ivs = encoding::InitializationVectors::generate();
+
+        encoding::encode_plaintext(
+            protocol::Handshake {
+                version: "4".to_string(),
+                encryption: ivs.to_protocol(),
+                mode,
+            },
+            &mut socket,
+        )
+        .await?;
+
+        let (mut decryptor, mut encryptor) = tokio::join!(
+            encoding::Decryptor::new(
+                password.clone(),
+                ivs.server_client_salt,
+                &ivs.server_client_nonce
+            ),
+            encoding::Encryptor::new(password, ivs.client_server_salt, &ivs.client_server_nonce),
+        );
+
+        if let protocol::Response::Reject { reason } = decryptor
+            .decode::<protocol::Response, _>(&mut socket)
+            .await?
+        {
+            return Err(D4FTError::RejectedHandshake { reason });
+        }
+
+        Ok(Self {
+            mode,
+            socket,
+            encryptor,
+            decryptor,
+        })
+    }
+
+    pub async fn send_text(&mut self, text: String) -> D4FTResult<()> {
+        self.check_mode(TransferMode::SendText)?;
+
+        self.encryptor
+            .encode(&protocol::SendText(text), &mut self.socket)
+            .await
+    }
+
+    pub async fn receive_text(&mut self) -> D4FTResult<String> {
+        self.check_mode(TransferMode::ReceiveText)?;
+
+        self.decryptor
+            .decode::<protocol::SendText, _>(&mut self.socket)
+            .await
+            .map(|response| response.0)
+    }
+
+    pub async fn send_file(&mut self, path: PathBuf) -> D4FTResult<()> {
+        self.check_mode(TransferMode::SendFile)?;
+
+        let file = fs::File::open(path.clone())
+            .await
+            .map_err(|source| D4FTError::FileOpenError { source })?;
+
+        let metadata = file
+            .metadata()
+            .await
+            .map_err(|source| D4FTError::FileOpenError { source })?;
+
+        self.encryptor
+            .encode(
+                &protocol::SendFile::File {
+                    path,
+                    length: metadata.len(),
+                    hash: None,
+                },
+                &mut self.socket,
+            )
+            .await?;
+
+        if let protocol::Response::Reject { reason } = self
+            .decryptor
+            .decode::<protocol::Response, _>(&mut self.socket)
+            .await?
+        {
+            return Err(D4FTError::RejectedFileTransfer { reason });
+        }
+
+        self.encryptor.encode_file(file, &mut self.socket).await
+    }
+
+    pub async fn receive_file(&mut self, path: PathBuf) -> D4FTResult<()> {
+        self.check_mode(TransferMode::ReceiveFile)?;
+
+        let file_definition = self
+            .decryptor
+            .decode::<protocol::SendFile, _>(&mut self.socket)
+            .await?;
+
+        let protocol::SendFile::File {
+            path: receiving_path,
+            length: receiving_length,
+            hash: receiving_hash
+        } = file_definition else {
+            self.encryptor
+                .encode(
+                    &protocol::Response::Reject {
+                        reason: "exppected file, got directory".to_string(),
+                    },
+                    &mut self.socket,
+                )
+                .await?;
+            return Err(D4FTError::RejectedFileTransfer {
+                reason: "expected file, got directory".to_string(),
+            });
+        };
+
+        if receiving_path != path {
+            self.encryptor
+                .encode(
+                    &protocol::Response::Reject {
+                        reason: "unexpected file path".to_string(),
+                    },
+                    &mut self.socket,
+                )
+                .await?;
+            return Err(D4FTError::RejectedFileTransfer {
+                reason: "unexpected file path".to_string(),
+            });
+        }
+
+        let file = fs::File::open(path.clone())
+            .await
+            .map_err(|source| D4FTError::FileOpenError { source })?;
+
+        self.decryptor.decode_file(file, &mut self.socket).await
+    }
+
+    fn check_mode(&self, mode: TransferMode) -> D4FTResult<()> {
+        if self.mode != mode {
+            Err(D4FTError::IncorrectTransferMode {
+                required: mode,
+                actual: self.mode,
+            })
+        } else {
+            Ok(())
+        }
+    }
 }
 
 pub async fn server(password: String, message: Option<String>) -> D4FTResult<Option<String>> {
-    // let mac_length = dbg!(<<chacha20poly1305::XChaCha20Poly1305 as aead::AeadCore>::CiphertextOverhead as typenum::marker_traits::Unsigned>::to_usize());
-    // let mut message_bytes = message.clone().bytes().collect::<Vec<_>>();
-    // println!("message length: {}", message_bytes.len());
-    // let cipher = chacha20poly1305::XChaCha20Poly1305::new(&[0u8; 32].into());
-    // cipher.encrypt_in_place(&[0; 24].into(), b"D4FTD4FT", &mut message_bytes);
-    // dbg!(&message_bytes);
-    // dbg!(String::from_utf8_lossy(&message_bytes));
-    // println!("message length after cipher: {}", message_bytes.len());
-
-    let listener = TcpListener::bind("127.0.0.1:2581").await
-        .map_err(|source| D4FTError::SocketError { source })?;
-
-    let (mut socket, _) = listener.accept().await
-        .map_err(|source| D4FTError::SocketError { source })?;
-
-    let handshake = decode_plaintext::<protocol::Handshake, _>(&mut socket).await?;
-
-    if handshake.version != "4"
-        || handshake.mode != protocol::TransferMode::SendText
-    {
-        encode_plaintext(protocol::HandshakeResponse::Reject { reason: "invalid handshake".to_string() }, &mut socket).await?;
-        return Ok(Some("invalid handshake".to_string()));
-    }
-
-    let ivs = encoding::InitializationVectors::from_protocol(handshake.encryption)?;
-    let (mut encryptor, mut decryptor) = tokio::join!(
-        encoding::Encryptor::new(password.clone(), ivs.server_client_salt, &ivs.server_client_nonce),
-        encoding::Decryptor::new(password, ivs.client_server_salt, &ivs.client_server_nonce),
-    );
-
-    encryptor.encode(protocol::HandshakeResponse::Accept, &mut socket).await?;
-
-    Ok(
-        if let Some(message) = message {
-            encryptor.encode(protocol::SendText(message), &mut socket).await?;
-            None
-        } else {
-            Some(decryptor.decode::<protocol::SendText, _>(&mut socket).await?.0)
+    match message {
+        Some(message) => {
+            Connection::listen("127.0.0.1:2581", TransferMode::SendText, password)
+                .await?
+                .send_text(message)
+                .await?;
+            Ok(None)
         }
-    )
+        None => Connection::listen("127.0.0.1:2581", TransferMode::ReceiveText, password)
+            .await?
+            .receive_text()
+            .await
+            .map(Some),
+    }
 }
 
 pub async fn client(password: String, message: Option<String>) -> D4FTResult<Option<String>> {
-    let mut socket = TcpStream::connect("127.0.0.1:2581").await
-        .map_err(|source| D4FTError::SocketError { source })?;
-
-    let mut ivs = encoding::InitializationVectors::generate();
-
-    encode_plaintext(protocol::Handshake {
-        version: "4".to_string(),
-        encryption: ivs.to_protocol(),
-        mode: protocol::TransferMode::SendText,
-    }, &mut socket).await?;
-
-    let (mut decryptor, mut encryptor) = tokio::join!(
-        encoding::Decryptor::new(password.clone(), ivs.server_client_salt, &ivs.server_client_nonce),
-        encoding::Encryptor::new(password, ivs.client_server_salt, &ivs.client_server_nonce),
-    );
-
-    let response = decryptor.decode::<protocol::HandshakeResponse, _>(&mut socket).await?;
-
-    if let protocol::HandshakeResponse::Reject { reason } = response {
-        return Ok(Some(format!("handshake rejected: {reason}")));
-    }
-
-    Ok(
-        if let Some(message) = message {
-            encryptor.encode(protocol::SendText(message), &mut socket).await?;
-            None
-        } else {
-            Some(decryptor.decode::<protocol::SendText, _>(&mut socket).await?.0)
+    match message {
+        Some(message) => {
+            Connection::connect("127.0.0.1:2581", TransferMode::SendText, password)
+                .await?
+                .send_text(message)
+                .await?;
+            Ok(None)
         }
-    )
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn it_works() {
-        let result = add(2, 2);
-        assert_eq!(result, 4);
+        None => Connection::connect("127.0.0.1:2581", TransferMode::ReceiveText, password)
+            .await?
+            .receive_text()
+            .await
+            .map(Some),
     }
 }
