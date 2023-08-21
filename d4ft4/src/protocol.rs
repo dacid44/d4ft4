@@ -52,13 +52,30 @@ pub(crate) enum Response {
 #[derive(Serialize, Deserialize, Debug)]
 pub(crate) struct SendText(pub(crate) String);
 
+#[derive(Serialize, Deserialize, Debug)]
+#[serde(rename_all = "kebab-case")]
+pub(crate) struct FileList {
+    list: Vec<FileListItem>,
+    total_size: u64,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+#[serde(tag = "type", rename_all = "lowercase")]
+pub(crate) enum FileListItem {
+    File {
+        path: PathBuf,
+        size: u64,
+    },
+    Directory(PathBuf),
+}
+
 // hashing should be optional
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(rename_all = "lowercase")]
 pub(crate) enum SendFile {
     File {
         path: PathBuf,
-        length: u64,
+        size: u64,
         hash: Option<String>,
     },
     Directory(PathBuf),

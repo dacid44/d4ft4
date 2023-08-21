@@ -19,6 +19,8 @@ d4ft4 = { path = "../../d4ft4" }
 serde_json = "1.0"
 serde = { version = "1.0", features = ["derive"] }
 tauri = { version = "1.3.0", features = ["dialog-open", "dialog-save"] }
+tokio = { version = "1.31", features = [ "full", "tracing" ] }
+console-subscriber = "0.1.10"
 
 [features]
 # this feature is used for production builds or when `devPath` points to the filesystem and the built-in dev server is disabled.

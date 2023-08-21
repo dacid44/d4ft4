@@ -163,7 +163,7 @@ impl Connection {
             .encode(
                 &protocol::SendFile::File {
                     path,
-                    length: metadata.len(),
+                    size: metadata.len(),
                     hash: None,
                 },
                 &mut self.socket,
@@ -191,7 +191,7 @@ impl Connection {
 
         let protocol::SendFile::File {
             path: receiving_path,
-            length: receiving_length,
+            size: receiving_length,
             hash: receiving_hash
         } = file_definition else {
             self.encryptor
@@ -220,6 +220,8 @@ impl Connection {
         //         reason: "unexpected file path".to_string(),
         //     });
         // }
+
+        self.encryptor.encode(&protocol::Response::Accept, &mut self.socket).await?;
 
         let file = fs::File::create(path.clone())
             .await
