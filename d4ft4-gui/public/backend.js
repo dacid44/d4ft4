@@ -39,7 +39,7 @@ function initBackend(app) {
     addFunction(app, "receive_file", ({ connId, path }) => ({ connId, path }), "callReceiveFile", "returnMessage");
 
     app.ports.callSelectFile.subscribe(({ connId, save }) => {
-        save ? dialog.save() : dialog.open({ directory: false, multiple: false })
+        (save ? dialog.save() : dialog.open({ directory: false, multiple: false }))
             .then(path => app.ports.returnSelectFile.send([connId, path]));
     })
 }
