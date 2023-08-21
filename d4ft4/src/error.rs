@@ -4,10 +4,10 @@ use crate::TransferMode;
 
 #[derive(Error, Debug)]
 pub enum D4FTError {
-    #[error("Rejected handshake: {reason}")]
+    #[error("rejected handshake: {reason}")]
     RejectedHandshake { reason: String },
 
-    #[error("Incorrect transfer mode")]
+    #[error("incorrect transfer mode")]
     IncorrectTransferMode {
         required: TransferMode,
         actual: TransferMode,
@@ -16,40 +16,40 @@ pub enum D4FTError {
     #[error("JSON encode error")]
     JsonEncodeError { source: serde_json::Error },
 
-    #[error("Write error during encoding")]
+    #[error("write error during encoding")]
     EncodeWriteError { source: std::io::Error },
 
-    #[error("Encryption error")]
+    #[error("encryption error")]
     EncryptionError { source: aead::Error },
 
     #[error("JSON decode error")]
     JsonDecodeError { source: serde_json::Error },
 
-    #[error("Read error during decoding")]
+    #[error("read error during decoding")]
     DecodeReadError { source: std::io::Error },
 
-    #[error("Tried to decode a malformed message: {msg}")]
+    #[error("tried to decode a malformed message: {msg}")]
     MalformedMessage { msg: String },
 
-    #[error("Socket Error")]
+    #[error("socket error")]
     SocketError { source: std::io::Error },
 
-    #[error("Decryption error")]
+    #[error("decryption error")]
     DecryptionError { source: aead::Error },
 
-    #[error("Hex decode error")]
+    #[error("hex decode error")]
     HexDecodeError { source: hex::FromHexError },
 
-    #[error("File read error")]
+    #[error("file read error")]
     FileReadError { source: std::io::Error },
 
-    #[error("File write error")]
+    #[error("file write error")]
     FileWriteError { source: std::io::Error },
 
-    #[error("Error opening file")]
+    #[error("error opening file")]
     FileOpenError { source: std::io::Error },
 
-    #[error("Rejected file transfer")]
+    #[error("rejected file transfer")]
     RejectedFileTransfer { reason: String },
 }
 

@@ -9,8 +9,7 @@ use tokio::{
     net::{TcpListener, TcpStream, ToSocketAddrs},
 };
 
-use encoding::{decode_plaintext, encode_plaintext};
-use error::{D4FTError, D4FTResult};
+pub use error::{D4FTError, D4FTResult};
 
 pub use protocol::TransferMode;
 
@@ -34,7 +33,7 @@ impl Connection {
             .await
             .map_err(|source| D4FTError::SocketError { source })?;
 
-        let handshake = decode_plaintext::<protocol::Handshake, _>(&mut socket).await?;
+        let handshake = encoding::decode_plaintext::<protocol::Handshake, _>(&mut socket).await?;
 
         let ivs = encoding::InitializationVectors::from_protocol(handshake.encryption)?;
         let (mut encryptor, mut decryptor) = tokio::join!(
@@ -208,21 +207,21 @@ impl Connection {
             });
         };
 
-        if receiving_path != path {
-            self.encryptor
-                .encode(
-                    &protocol::Response::Reject {
-                        reason: "unexpected file path".to_string(),
-                    },
-                    &mut self.socket,
-                )
-                .await?;
-            return Err(D4FTError::RejectedFileTransfer {
-                reason: "unexpected file path".to_string(),
-            });
-        }
+        // if receiving_path != path {
+        //     self.encryptor
+        //         .encode(
+        //             &protocol::Response::Reject {
+        //                 reason: "unexpected file path".to_string(),
+        //             },
+        //             &mut self.socket,
+        //         )
+        //         .await?;
+        //     return Err(D4FTError::RejectedFileTransfer {
+        //         reason: "unexpected file path".to_string(),
+        //     });
+        // }
 
-        let file = fs::File::open(path.clone())
+        let file = fs::File::create(path.clone())
             .await
             .map_err(|source| D4FTError::FileOpenError { source })?;
 

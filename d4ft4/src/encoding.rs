@@ -238,13 +238,16 @@ impl Decryptor {
         mut file: F,
         mut reader: R,
     ) -> D4FTResult<()> {
+        println!("decode_file");
         loop {
+            println!("decode_file loop");
             let bytes = self.decode_data(&mut reader).await?;
 
             if bytes.len() == 0 {
                 return Ok(());
             }
 
+            println!("writing {} bytes", bytes.len());
             file.write_all(&bytes)
                 .await
                 .map_err(|source| D4FTError::FileWriteError { source })?;

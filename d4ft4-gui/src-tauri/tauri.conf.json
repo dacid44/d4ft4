@@ -3,7 +3,8 @@
     "beforeBuildCommand": "elm make src/Main.elm --output=public/main.js",
     "beforeDevCommand": "elm make src/Main.elm --output=public/main.js",
     "devPath": "../public",
-    "distDir": "../public"
+    "distDir": "../public",
+    "withGlobalTauri": true
   },
   "package": {
     "productName": "d4ft4-gui",
@@ -11,7 +12,12 @@
   },
   "tauri": {
     "allowlist": {
-      "all": false
+      "all": false,
+      "dialog": {
+        "all": false,
+        "open": true,
+        "save": true
+      }
     },
     "bundle": {
       "active": true,

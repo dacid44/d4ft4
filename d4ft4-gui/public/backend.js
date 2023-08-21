@@ -32,6 +32,14 @@ function addFunction(app, name, args, callPort, returnPort) {
 }
 
 function initBackend(app) {
-    addFunction(app, "server", ({ password, message }) => ({ password, message }), "callServer", "returnServer");
-    addFunction(app, "client", ({ password, message }) => ({ password, message }), "callClient", "returnClient");
+    addFunction(app, "setup", ({ connId, isServer, mode, password }) => ({ connId, isServer, mode, password }), "callSetup", "returnMessage");
+    addFunction(app, "send_text", ({ connId, text }) => ({ connId, text}), "callSendText", "returnMessage");
+    addFunction(app, "receive_text", ({ connId }) => ({ connId }), "callReceiveText", "returnMessage");
+    addFunction(app, "send_file", ({ connId, path }) => ({ connId, path }), "callSendFile", "returnMessage");
+    addFunction(app, "receive_file", ({ connId, path }) => ({ connId, path }), "callReceiveFile", "returnMessage");
+
+    app.ports.callSelectFile.subscribe(({ connId, save }) => {
+        save ? dialog.save() : dialog.open({ directory: false, multiple: false })
+            .then(path => app.ports.returnSelectFile.send([connId, path]));
+    })
 }

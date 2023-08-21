@@ -5,114 +5,198 @@ import Html exposing (..)
 import Html.Attributes exposing (placeholder, value)
 import Html.Events exposing (onClick, onInput)
 import Html.Attributes exposing (type_)
+import Array exposing (Array)
+import Html.Attributes exposing (selected)
+import Maybe exposing (withDefault)
 
 
-port callServer : { password: String, message: Maybe String } -> Cmd msg
+port callSetup : { connId: Int, isServer: Bool, mode: String, password: String } -> Cmd msg
+port callSendText : { connId: Int, text: String } -> Cmd msg
+port callReceiveText : { connId: Int } -> Cmd msg
+port callSendFile : { connId: Int, path: String } -> Cmd msg
+port callReceiveFile : { connId: Int, path: String } -> Cmd msg
+
+port returnMessage : (( Int, Maybe String ) -> msg) -> Sub msg
+
+port callSelectFile : { connId: Int, save: Bool } -> Cmd msg
+port returnSelectFile : (( Int, Maybe String ) -> msg) -> Sub msg
 
 
-port returnServer : (Maybe String -> msg) -> Sub msg
+type alias Model =
+    Array ConnectionModel
 
-
-port callClient : { password: String, message: Maybe String } -> Cmd msg
-
-
-port returnClient : (Maybe String -> msg) -> Sub msg
-
-
-type alias Model =if receiving_path != path {
-            self.encryptor
-                .encode(
-                    &protocol::Response::Reject {
-                        reason: "unexpected file path".to_string(),
-                    },
-                    &mut self.socket,
-                )
-                .await?;
-            return Err(D4FTError::RejectedFileTransfer {
-                reason: "unexpected file path".to_string(),
-            });
-        }
-    , message : String
-    , receivedFromClient : Maybe String
-    , receivedFromServer : Maybe String
+type alias ConnectionModel =
+    { password : String
+    , mode : TransferMode
+    , text : String
+    , path : String
+    , receivedMessage : Maybe String
     }
+
+type TransferMode
+    = SendText
+    | ReceiveText
+    | SendFile
+    | ReceiveFile
+
+encodeTransferMode : TransferMode -> String
+encodeTransferMode mode =
+    case mode of
+        SendText -> "send-text"
+        ReceiveText -> "receive-text"
+        SendFile -> "send-file"
+        ReceiveFile -> "receive-file"
+
+decodeTransferMode : String -> TransferMode
+decodeTransferMode mode =
+    case mode of
+        "send-text" -> SendText
+        "receive-text" -> ReceiveText
+        "send-file" -> SendFile
+        "receive-file" -> ReceiveFile
+        _ -> SendText
 
 
 init : () -> ( Model, Cmd Msg )
 init _ =
-    ( Model "" "" Nothing Nothing, Cmd.none )
+    ( Array.repeat 2 (ConnectionModel "" SendText "" "" Nothing), Cmd.none )
 
 
 view : Model -> Browser.Document Msg
 view model =
     { title = "D4FT4"
-    , body =
-        [ div []
-            [ input [ type_ "password", placeholder "password", value model.password, onInput PasswordChanged ] []
-            , input [ placeholder "message", value model.message, onInput MessageChanged ] []
-            ]
-        , div []
-            [ button [ onClick ServerSend ] [ text "set up server and send to client" ]
-            , button [ onClick ServerReceive ] [ text "set up server and receive from client"]
-            , button [ onClick ClientSend ] [ text "set up client and send to server" ]
-            , button [ onClick ClientReceive ] [ text "set up client and receive from server" ]
-            ]
-        , div []
-            (text "Received from client: "
-                :: (model.receivedFromClient |> Maybe.map (text >> List.singleton) |> Maybe.withDefault [])
-            )
-        , div []
-            (text "Received from server: "
-                :: (model.receivedFromServer |> Maybe.map (text >> List.singleton) |> Maybe.withDefault [])
-            )
-        ]
+    , body = model |> Array.indexedMap connectionPanel |> Array.toList
     }
+
+connectionPanel : Int -> ConnectionModel -> Html Msg
+connectionPanel connId connectionModel =
+    div []
+        [ div []
+            [ input [ type_ "password", placeholder "password", value connectionModel.password, onInput (PasswordChanged connId) ] []
+            , select [ value (encodeTransferMode connectionModel.mode), onInput (TransferModeChanged connId << decodeTransferMode) ]
+                [ option [ value "send-text", selected True ] [ text "Send text" ]
+                , option [ value "receive-text" ] [ text "Receive text" ]
+                , option [ value "send-file" ] [ text "Send file" ]
+                , option [ value "receive-file" ] [ text "Receive file" ]
+                ]
+            , button [ onClick (CallSetupServer connId) ] [ text "Set up server" ]
+            , button [ onClick (CallSetupClient connId) ] [ text "Set up client" ]
+            ]
+        , div []
+            [ input [ placeholder "text", value connectionModel.text, onInput (TextChanged connId) ] []
+            , button [ onClick (CallSendText connId) ] [ text "Send text" ]
+            , button [ onClick (CallReceiveText connId) ] [ text "Receive text" ]
+            ]
+        , div []
+            [ input [ placeholder "path", value connectionModel.path, onInput (PathChanged connId) ] []
+            , button [ onClick (SelectFile connId False ) ] [ text "Select file" ]
+            , button [ onClick (SelectFile connId True) ] [ text "Select file (save)" ]
+            , button [ onClick (CallSendFile connId) ] [ text "Send file" ]
+            , button [ onClick (CallReceiveFile connId) ] [ text "Receive file" ]
+            ]
+        , div [] [ text <| "Message: " ++ (connectionModel.receivedMessage |> withDefault "") ]
+        ]
 
 
 type Msg
-    = PasswordChanged String
-    | MessageChanged String
-    | ServerSend
-    | ServerReceive
-    | ReturnServer (Maybe String)
-    | ClientSend
-    | ClientReceive
-    | ReturnClient (Maybe String)
+    = PasswordChanged Int String
+    | TextChanged Int String
+    | TransferModeChanged Int TransferMode
+    | SelectFile Int Bool
+    | PathChanged Int String
+    | CallSetupServer Int
+    | CallSetupClient Int
+    | CallSendText Int
+    | CallReceiveText Int
+    | CallSendFile Int
+    | CallReceiveFile Int
+    | ReturnMessage Int (Maybe String)
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case msg of
-        PasswordChanged password ->
-            ( { model | password = password }, Cmd.none )
+        PasswordChanged connId password ->
+            ( updateModelArray connId model (\connectionModel -> { connectionModel | password = password }), Cmd.none )
 
-        MessageChanged message ->
-            ( { model | message = message }, Cmd.none )
+        TextChanged connId text ->
+            ( updateModelArray connId model (\connectionModel -> { connectionModel | text = text }), Cmd.none )
 
-        ServerSend ->
-            ( model, callServer { password = model.password, message = Just model.message } )
+        TransferModeChanged connId mode ->
+            ( updateModelArray connId model (\connectionModel -> { connectionModel | mode = mode }), Cmd.none )
         
-        ServerReceive ->
-            ( model, callServer { password = model.password, message = Nothing } )
+        SelectFile connId save ->
+            ( model, callSelectFile { connId = connId, save = save })
 
-        ReturnServer message ->
-            ( { model | receivedFromClient = message }, Cmd.none )
+        PathChanged connId path ->
+            ( updateModelArray connId model (\connectionModel -> { connectionModel | path = path }), Cmd.none )
 
-        ClientSend ->
-            ( model, callClient { password = model.password, message = Just model.message } )
+        CallSetupServer connId ->
+            ( model
+            , callSetup
+                { connId = connId
+                , isServer = True
+                , mode = model |> Array.get connId |> Maybe.map (.mode >> encodeTransferMode) |> Maybe.withDefault "send-text"
+                , password = model |> Array.get connId |> Maybe.map .password |> Maybe.withDefault ""
+                }
+            )
+        
+        CallSetupClient connId ->
+            ( model
+            , callSetup
+                { connId = connId
+                , isServer = False
+                , mode = model |> Array.get connId |> Maybe.map (.mode >> encodeTransferMode) |> Maybe.withDefault "send-text"
+                , password = model |> Array.get connId |> Maybe.map .password |> Maybe.withDefault ""
+                }
+            )
 
-        ClientReceive ->
-            ( model, callClient { password = model.password, message = Nothing } )
+        CallSendText connId ->
+            ( model
+            , callSendText
+                { connId = connId
+                , text = model |> Array.get connId |> Maybe.map .text |> Maybe.withDefault ""
+                }
+            )
 
-        ReturnClient message ->
-            ( { model | receivedFromServer = message }, Cmd.none )
+        CallReceiveText connId ->
+            ( model, callReceiveText { connId = connId } )
+
+        CallSendFile connId ->
+            ( model
+            , callSendFile
+                { connId = connId
+                , path = model |> Array.get connId |> Maybe.map .path |> Maybe.withDefault ""
+                }
+            )
+
+        CallReceiveFile connId ->
+            ( model
+            , callReceiveFile
+                { connId = connId
+                , path = model |> Array.get connId |> Maybe.map .path |> Maybe.withDefault ""
+                }
+            )
+
+        ReturnMessage connId message ->
+            ( updateModelArray connId model (\connectionModel -> { connectionModel | receivedMessage = message }), Cmd.none )
+
+updateModelArray : Int -> Model -> (ConnectionModel -> ConnectionModel) -> Model
+updateModelArray connId model mapFn =
+    model |> Array.indexedMap (\i connectionModel -> if i == connId then mapFn connectionModel else connectionModel)
 
 
 subscriptions : Model -> Sub Msg
 subscriptions model =
     Sub.batch
-        [ returnServer ReturnServer
-        , returnClient ReturnClient
+        [ returnMessage (\( connId, message ) -> ReturnMessage connId message)
+        , returnSelectFile (\( connId, path ) ->
+            case path of
+                Just newPath ->
+                    PathChanged connId newPath
+                Nothing ->
+                    PathChanged -1 ""
+            )
         ]
 
 
