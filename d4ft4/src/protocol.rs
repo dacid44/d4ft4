@@ -59,7 +59,7 @@ pub(crate) struct FileList {
     total_size: u64,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 #[serde(tag = "type", rename_all = "lowercase")]
 pub(crate) enum FileListItem {
     File {
@@ -67,6 +67,15 @@ pub(crate) enum FileListItem {
         size: u64,
     },
     Directory(PathBuf),
+}
+
+impl FileListItem {
+    pub(crate) fn path(&self) -> &PathBuf {
+        match self {
+            Self::File { path, .. } => path,
+            Self::Directory(path) => path,
+        }
+    }
 }
 
 // hashing should be optional

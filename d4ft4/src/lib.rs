@@ -2,8 +2,9 @@ mod encoding;
 mod error;
 mod protocol;
 
-use std::path::PathBuf;
+use std::{path::{PathBuf, Path}, ops::Deref, cmp::Ordering};
 
+use protocol::FileListItem;
 use tokio::{
     fs,
     net::{TcpListener, TcpStream, ToSocketAddrs},
@@ -14,7 +15,7 @@ pub use error::{D4FTError, D4FTResult};
 pub use protocol::TransferMode;
 
 pub struct Connection {
-    mode: TransferMode,
+    stage: TransferStage,
     socket: TcpStream,
     encryptor: encoding::Encryptor,
     decryptor: encoding::Decryptor,
@@ -78,7 +79,7 @@ impl Connection {
             .await?;
 
         Ok(Self {
-            mode,
+            stage: TransferStage::from_mode(mode),
             socket,
             encryptor,
             decryptor,
@@ -123,7 +124,7 @@ impl Connection {
         }
 
         Ok(Self {
-            mode,
+            stage: TransferStage::from_mode(mode),
             socket,
             encryptor,
             decryptor,
@@ -230,11 +231,28 @@ impl Connection {
         self.decryptor.decode_file(file, &mut self.socket).await
     }
 
+    /// Recursively send files from the given paths.
+    pub async fn prepare_send_files<P: Deref<Target = Path>>(&mut self, paths: &[P]) -> D4FTResult<()> {
+        self.check_mode(TransferMode::SendFile)?;
+        // check for existing prepare
+        let stored_paths = match &mut self.stage {
+            TransferStage::SendFile(paths) => if paths.is_none() { paths } else {
+                return Err(D4FTError::ExistingFileTransferPrepared);
+            }
+            _ => return Err(D4FTError::IncorrectTransferMode { required: TransferMode::SendFile, actual: self.stage.to_mode() }),
+        };
+
+
+
+        todo!()
+    }
+
     fn check_mode(&self, mode: TransferMode) -> D4FTResult<()> {
-        if self.mode != mode {
+        let actual_mode = self.stage.to_mode();
+        if actual_mode != mode {
             Err(D4FTError::IncorrectTransferMode {
                 required: mode,
-                actual: self.mode,
+                actual: actual_mode,
             })
         } else {
             Ok(())
@@ -242,36 +260,53 @@ impl Connection {
     }
 }
 
-pub async fn server(password: String, message: Option<String>) -> D4FTResult<Option<String>> {
-    match message {
-        Some(message) => {
-            Connection::listen("127.0.0.1:2581", TransferMode::SendText, password)
-                .await?
-                .send_text(message)
-                .await?;
-            Ok(None)
+enum TransferStage {
+    SendText,
+    SendFile(Option<Vec<protocol::FileListItem>>),
+    ReceiveText,
+    ReceiveFile(Option<Vec<protocol::FileListItem>>),
+}
+
+impl TransferStage {
+    fn from_mode(mode: TransferMode) -> Self {
+        match mode {
+            TransferMode::SendText => Self::SendText,
+            TransferMode::SendFile => Self::SendFile(None),
+            TransferMode::ReceiveText => Self::ReceiveText,
+            TransferMode::ReceiveFile => Self::ReceiveFile(None),
         }
-        None => Connection::listen("127.0.0.1:2581", TransferMode::ReceiveText, password)
-            .await?
-            .receive_text()
-            .await
-            .map(Some),
+    }
+
+    fn to_mode(&self) -> TransferMode {
+        match self {
+            Self::SendText => TransferMode::SendText,
+            Self::SendFile(_) => TransferMode::SendFile,
+            Self::ReceiveText => TransferMode::ReceiveText,
+            Self::ReceiveFile(_) => TransferMode::ReceiveFile,
+        }
     }
 }
 
-pub async fn client(password: String, message: Option<String>) -> D4FTResult<Option<String>> {
-    match message {
-        Some(message) => {
-            Connection::connect("127.0.0.1:2581", TransferMode::SendText, password)
-                .await?
-                .send_text(message)
-                .await?;
-            Ok(None)
+impl PartialOrd for FileListItem {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for FileListItem {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        let self_path = self.path();
+        let other_path = other.path();
+        
+        if self_path == other_path {
+            return match (self, other) {
+                (Self::Directory(_), Self::File { .. }) => Ordering::Less,
+                (Self::File { .. }, Self::Directory(_)) => Ordering::Greater,
+                (Self::Directory(_), Self::Directory(_)) => Ordering::Equal,
+                (Self::File { size: self_size, .. }, Self::File { size: other_size, .. }) => self_size.cmp(other_size),
+            };
         }
-        None => Connection::connect("127.0.0.1:2581", TransferMode::ReceiveText, password)
-            .await?
-            .receive_text()
-            .await
-            .map(Some),
+
+        self_path.cmp(other_path)
     }
 }

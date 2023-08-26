@@ -51,6 +51,12 @@ pub enum D4FTError {
 
     #[error("rejected file transfer")]
     RejectedFileTransfer { reason: String },
+
+    #[error("file transfer already prepared")]
+    ExistingFileTransferPrepared,
+
+    #[error("file transfer not prepared")]
+    NoFileTransferPrepared,
 }
 
 pub type D4FTResult<T> = Result<T, D4FTError>;
