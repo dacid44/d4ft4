@@ -2,9 +2,13 @@ mod encoding;
 mod error;
 mod protocol;
 
-use std::{path::{PathBuf, Path}, ops::Deref, cmp::Ordering};
+use std::{
+    cmp::Ordering,
+    ops::Deref,
+    path::{Path, PathBuf},
+};
 
-use protocol::FileListItem;
+use faccess::PathExt;
 use tokio::{
     fs,
     net::{TcpListener, TcpStream, ToSocketAddrs},
@@ -12,7 +16,7 @@ use tokio::{
 
 pub use error::{D4FTError, D4FTResult};
 
-pub use protocol::TransferMode;
+pub use protocol::{FileList, FileListItem, TransferMode};
 
 pub struct Connection {
     stage: TransferStage,
@@ -198,7 +202,7 @@ impl Connection {
             self.encryptor
                 .encode(
                     &protocol::Response::Reject {
-                        reason: "exppected file, got directory".to_string(),
+                        reason: "expected file, got directory".to_string(),
                     },
                     &mut self.socket,
                 )
@@ -222,7 +226,9 @@ impl Connection {
         //     });
         // }
 
-        self.encryptor.encode(&protocol::Response::Accept, &mut self.socket).await?;
+        self.encryptor
+            .encode(&protocol::Response::Accept, &mut self.socket)
+            .await?;
 
         let file = fs::File::create(path.clone())
             .await
@@ -232,17 +238,77 @@ impl Connection {
     }
 
     /// Recursively send files from the given paths.
-    pub async fn prepare_send_files<P: Deref<Target = Path>>(&mut self, paths: &[P]) -> D4FTResult<()> {
+    pub async fn prepare_send_files<P: Deref<Target = Path>>(
+        &mut self,
+        paths: &[P],
+    ) -> D4FTResult<()> {
         self.check_mode(TransferMode::SendFile)?;
         // check for existing prepare
         let stored_paths = match &mut self.stage {
-            TransferStage::SendFile(paths) => if paths.is_none() { paths } else {
-                return Err(D4FTError::ExistingFileTransferPrepared);
+            TransferStage::SendFile(paths) => {
+                if paths.is_none() {
+                    paths
+                } else {
+                    return Err(D4FTError::ExistingFileTransferPrepared);
+                }
             }
-            _ => return Err(D4FTError::IncorrectTransferMode { required: TransferMode::SendFile, actual: self.stage.to_mode() }),
+            _ => {
+                return Err(D4FTError::IncorrectTransferMode {
+                    required: TransferMode::SendFile,
+                    actual: self.stage.to_mode(),
+                })
+            }
         };
 
+        // recursively search/glob the paths and sizes
+        let mut file_list = FileList {
+            list: Vec::new(),
+            total_size: 0,
+        };
+        for root_path in paths {
+            for node in walkdir::WalkDir::new::<&Path>(root_path.as_ref())
+                .follow_links(true)
+                .follow_root_links(true)
+            {
+                let node = node.map_err(|err| D4FTError::WalkDirError {
+                    path: err.path().map(ToOwned::to_owned),
+                    source: err.into(),
+                })?;
+                let path = node.path();
 
+                if !path.readable() {
+                    return Err(D4FTError::CannotReadPath {
+                        path: path.to_path_buf(),
+                    });
+                }
+                file_list.list.push(if node.file_type().is_file() {
+                    let size = node
+                        .metadata()
+                        .map_err(|source| D4FTError::FileReadError { source: source.into() })?
+                        .len();
+                    file_list.total_size += size;
+                    FileListItem::File {
+                        path: path.to_path_buf(),
+                        size,
+                    }
+                } else {
+                    FileListItem::Directory(path.to_path_buf())
+                });
+            }
+        }
+
+        // send paths to receiver
+        self.encryptor.encode(&file_list, &mut self.socket).await?;
+
+        stored_paths.insert(file_list);
+        Ok(())
+    }
+
+    pub async fn receive_paths(&mut self) -> D4FTResult<FileList> {
+        self.check_mode(TransferMode::ReceiveFile)?;
+        // check for existing file list
+
+        //
 
         todo!()
     }
@@ -262,9 +328,9 @@ impl Connection {
 
 enum TransferStage {
     SendText,
-    SendFile(Option<Vec<protocol::FileListItem>>),
+    SendFile(Option<FileList>),
     ReceiveText,
-    ReceiveFile(Option<Vec<protocol::FileListItem>>),
+    ReceiveFile(Option<FileList>),
 }
 
 impl TransferStage {
@@ -297,13 +363,20 @@ impl Ord for FileListItem {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
         let self_path = self.path();
         let other_path = other.path();
-        
+
         if self_path == other_path {
             return match (self, other) {
                 (Self::Directory(_), Self::File { .. }) => Ordering::Less,
                 (Self::File { .. }, Self::Directory(_)) => Ordering::Greater,
                 (Self::Directory(_), Self::Directory(_)) => Ordering::Equal,
-                (Self::File { size: self_size, .. }, Self::File { size: other_size, .. }) => self_size.cmp(other_size),
+                (
+                    Self::File {
+                        size: self_size, ..
+                    },
+                    Self::File {
+                        size: other_size, ..
+                    },
+                ) => self_size.cmp(other_size),
             };
         }
 

@@ -54,14 +54,14 @@ pub(crate) struct SendText(pub(crate) String);
 
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(rename_all = "kebab-case")]
-pub(crate) struct FileList {
-    list: Vec<FileListItem>,
-    total_size: u64,
+pub struct FileList {
+    pub(crate) list: Vec<FileListItem>,
+    pub(crate) total_size: u64,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 #[serde(tag = "type", rename_all = "lowercase")]
-pub(crate) enum FileListItem {
+pub enum FileListItem {
     File {
         path: PathBuf,
         size: u64,
@@ -70,7 +70,7 @@ pub(crate) enum FileListItem {
 }
 
 impl FileListItem {
-    pub(crate) fn path(&self) -> &PathBuf {
+    pub fn path(&self) -> &PathBuf {
         match self {
             Self::File { path, .. } => path,
             Self::Directory(path) => path,

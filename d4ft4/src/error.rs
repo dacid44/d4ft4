@@ -57,6 +57,13 @@ pub enum D4FTError {
 
     #[error("file transfer not prepared")]
     NoFileTransferPrepared,
+
+    #[error("IO error walking directory at path {path:?}")]
+    WalkDirError { source: std::io::Error, path: Option<std::path::PathBuf> },
+
+    #[error("path not readable: {path}")]
+    CannotReadPath { path: std::path::PathBuf },
+
 }
 
 pub type D4FTResult<T> = Result<T, D4FTError>;
