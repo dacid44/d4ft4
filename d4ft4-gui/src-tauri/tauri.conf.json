@@ -1,7 +1,7 @@
 {
   "build": {
-    "beforeBuildCommand": "elm make src/Main.elm --output=public/main.js",
-    "beforeDevCommand": "elm make src/Main.elm --output=public/main.js",
+    "beforeBuildCommand": "elm make src/FileTransfer.elm --output=public/main.js",
+    "beforeDevCommand": "elm make src/FileTransfer.elm --output=public/main.js",
     "devPath": "../public",
     "distDir": "../public",
     "withGlobalTauri": true

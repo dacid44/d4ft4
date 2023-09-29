@@ -300,17 +300,34 @@ impl Connection {
         // send paths to receiver
         self.encryptor.encode(&file_list, &mut self.socket).await?;
 
-        stored_paths.insert(file_list);
+        *stored_paths = Some(file_list);
         Ok(())
     }
 
     pub async fn receive_paths(&mut self) -> D4FTResult<FileList> {
         self.check_mode(TransferMode::ReceiveFile)?;
         // check for existing file list
+        let stored_paths = match &mut self.stage {
+            TransferStage::ReceiveFile(paths) => {
+                if paths.is_none() {
+                    paths
+                } else {
+                    return Err(D4FTError::ExistingFileTransferPrepared);
+                }
+            }
+            _ => {
+                return Err(D4FTError::IncorrectTransferMode {
+                    required: TransferMode::ReceiveFile,
+                    actual: self.stage.to_mode(),
+                })
+            }
+        };
 
-        //
+        // receive paths
+        let file_list = self.decryptor.decode::<protocol::FileList, _>(&mut self.socket).await?;
 
-        todo!()
+        *stored_paths = Some(file_list.clone());
+        Ok(file_list)
     }
 
     fn check_mode(&self, mode: TransferMode) -> D4FTResult<()> {

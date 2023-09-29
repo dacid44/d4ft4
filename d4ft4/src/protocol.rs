@@ -52,7 +52,7 @@ pub(crate) enum Response {
 #[derive(Serialize, Deserialize, Debug)]
 pub(crate) struct SendText(pub(crate) String);
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "kebab-case")]
 pub struct FileList {
     pub(crate) list: Vec<FileListItem>,
