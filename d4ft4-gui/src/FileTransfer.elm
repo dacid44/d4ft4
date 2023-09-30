@@ -2,11 +2,12 @@ module FileTransfer exposing (main)
 
 import Browser
 import Destination
-import Element exposing (..)
-import Element.Background as Background
-import Element.Border as Border
-import Element.Font as Font
-import Element.Input as Input
+import Html exposing (..)
+import W.Styles
+import W.Modal as Modal
+import W.Button as Button
+import W.Container as Container exposing (..)
+import Theme
 
 
 type alias Model =
@@ -24,21 +25,15 @@ view : Model -> Browser.Document Msg
 view model =
     { title = "hello world"
     , body =
-        [ layout []
-            (Element.el [ width fill, height fill, Background.color (rgb255 49 51 56) ]
-                (Element.column [ width fill, height fill, padding 16 ]
-                    [ Element.row []
-                        [ Input.text []
-                            { onChange = IpAddressChanged
-                            , text = model.ipAddress
-                            , placeholder = Nothing
-                            , label = Input.labelLeft [] (whiteText "IP Address: ")
-                            }
-                        ]
-                    , Element.map DestinationMsg (Destination.view model.destination)
-                    ]
-                )
-            )
+        [ W.Styles.globalStyles
+        , Theme.globalProviderWithDarkMode
+            { light = Theme.lightTheme
+            , dark = Theme.darkTheme
+            , strategy = Theme.systemStrategy
+            }
+        , Modal.viewToggle "main-destination"
+            [ Button.viewDummy [] [ text "Modal toggle" ] ]
+        , Html.map DestinationMsg (Destination.view "main-destination" model.destination)
         ]
     }
 
@@ -75,6 +70,6 @@ main =
 
 
 -- utility functions
-whiteText : String -> Element msg
-whiteText =
-    Element.el [ Font.color (rgb255 255 255 255) ] << Element.text
+--whiteText : String -> Element msg
+--whiteText =
+--    Element.el [ Font.color (rgb255 255 255 255) ] << Element.text
