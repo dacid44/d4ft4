@@ -15,3 +15,17 @@ How multiple file transfer will work:
     - if being sent multiple items, then expect/prompt for the user to choose a (single) folder that already exists
 - send accept/reject (at least for now, accept/reject is all or nothing)
 - transfer, etc...
+
+Brainstorming for UI:
+- Top section divided up into two parts, for text and files. Once you start a transfer, one will expand to take up the whole space.
+- Old version did something like this, had sliding panes to go between them
+- Bottom section is everything not dependent on what kind of transfer
+- Text side has incoming text like in chat bubbles maybe?
+- Could actually do the same thing for files
+- Oh! could structure like an email program: have a "send" button which brings up a tabbed interface with to send either text or files.
+- Have a way to go to a "receive" screen
+  - have an option to choose between receiving text, files, or autodetect
+  - also have a way to choose between connecting and listening
+  - this component could be common with the sending page but maybe not
+  - airdrop-like screen, where you view an incoming message, and if file, select where to save it
+- Have a way to view history
