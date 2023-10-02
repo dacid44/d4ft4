@@ -29,3 +29,7 @@ Brainstorming for UI:
   - this component could be common with the sending page but maybe not
   - airdrop-like screen, where you view an incoming message, and if file, select where to save it
 - Have a way to view history
+  - copy past text received
+  - open explorer to past files received
+  - have a way to delete old received stuff from log/stop tracking it
+  - maybe have a way to see sent history? but doesn't make quite as much sense as receive history

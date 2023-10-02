@@ -1,24 +1,38 @@
 module FileTransfer exposing (main)
 
 import Browser
-import Destination
-import Html exposing (..)
-import W.Styles
-import W.Modal as Modal
-import W.Button as Button
-import W.Container as Container exposing (..)
+import Common exposing (returnSetup)
+import Home
+import Receive
+import Send
 import Theme
+import W.Container as Container
+import W.Styles
+
+
+type Page
+    = Home
+    | Send
+    | Receive
 
 
 type alias Model =
-    { ipAddress : String
-    , destination : Destination.Model
+    { page : Page
+    , home : Home.Model
+    , send : Send.Model
+    , receive : Receive.Model
     }
 
 
 init : () -> ( Model, Cmd Msg )
 init _ =
-    ( { ipAddress = "", destination = Destination.init }, Cmd.none )
+    ( { page = Home
+      , home = Home.init
+      , send = Send.init
+      , receive = Receive.init
+      }
+    , Cmd.none
+    )
 
 
 view : Model -> Browser.Document Msg
@@ -31,32 +45,66 @@ view model =
             , dark = Theme.darkTheme
             , strategy = Theme.systemStrategy
             }
-        , Modal.viewToggle "main-destination"
-            [ Button.viewDummy [] [ text "Modal toggle" ] ]
-        , Html.map DestinationMsg (Destination.view "main-destination" model.destination)
+        , Container.view
+            [ Container.vertical
+            , Container.background Theme.baseBackground
+            , Container.styleAttrs [ ( "height", "100%" ) ]
+            ]
+            [ case model.page of
+                Home ->
+                    Home.view (PageChanged Send) (PageChanged Receive) HomeMsg model.home
+
+                Send ->
+                    Send.view (PageChanged Home) SendMsg model.send
+
+                Receive ->
+                    Receive.view (PageChanged Home) ReceiveMsg model.receive
+            ]
         ]
     }
 
 
 type Msg
-    = IpAddressChanged String
-    | DestinationMsg Destination.Msg
+    = PageChanged Page
+    | HomeMsg Home.Msg
+    | SendMsg Send.Msg
+    | ReceiveMsg Receive.Msg
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case msg of
-        IpAddressChanged ipAddress ->
-            ( { model | ipAddress = ipAddress }, Cmd.none )
+        PageChanged page ->
+            ( { model | page = page }, Cmd.none )
 
-        DestinationMsg subMsg ->
-            let ( subModel, subCmd ) = Destination.update subMsg model.destination in
-                ( { model | destination = subModel }, Cmd.map DestinationMsg subCmd )
+        HomeMsg subMsg ->
+            let
+                ( subModel, subCmd ) =
+                    Home.update subMsg model.home
+            in
+            ( { model | home = subModel }, Cmd.map HomeMsg subCmd )
+
+        SendMsg subMsg ->
+            let
+                ( subModel, subCmd ) =
+                    Send.update subMsg model.send
+            in
+            ( { model | send = subModel }, Cmd.map SendMsg subCmd )
+
+        ReceiveMsg subMsg ->
+            let
+                ( subModel, subCmd ) =
+                    Receive.update subMsg model.receive
+            in
+            ( { model | receive = subModel }, Cmd.map ReceiveMsg subCmd )
 
 
 subscriptions : Model -> Sub Msg
 subscriptions model =
-    Sub.none
+    Sub.batch
+        [ Sub.map SendMsg (Send.subscriptions model.send)
+        , Sub.map ReceiveMsg (Receive.subscriptions model.receive)
+        ]
 
 
 main : Program () Model Msg
@@ -67,9 +115,3 @@ main =
         , update = update
         , subscriptions = subscriptions
         }
-
-
--- utility functions
---whiteText : String -> Element msg
---whiteText =
---    Element.el [ Font.color (rgb255 255 255 255) ] << Element.text
