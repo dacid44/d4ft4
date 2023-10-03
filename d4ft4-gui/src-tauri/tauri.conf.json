@@ -10,15 +10,12 @@
     "productName": "d4ft4-gui",
     "version": "0.1.0"
   },
+  "plugins": {
+    "updater": {
+      "endpoints": []
+    }
+  },
   "tauri": {
-    "allowlist": {
-      "all": false,
-      "dialog": {
-        "all": false,
-        "open": true,
-        "save": true
-      }
-    },
     "bundle": {
       "active": true,
       "category": "DeveloperTool",
@@ -34,7 +31,7 @@
         "icons/icon.icns",
         "icons/icon.ico"
       ],
-      "identifier": "net.dacid44.d4ft4-gui",
+      "identifier": "net.dacid44.d4ft4.elm-tauri",
       "longDescription": "",
       "macOS": {
         "entitlements": null,
@@ -46,6 +43,9 @@
       "resources": [],
       "shortDescription": "",
       "targets": "all",
+      "updater": {
+        "active": false
+      },
       "windows": {
         "certificateThumbprint": null,
         "digestAlgorithm": "sha256",
@@ -54,9 +54,6 @@
     },
     "security": {
       "csp": null
-    },
-    "updater": {
-      "active": false
     },
     "windows": [
       {

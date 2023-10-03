@@ -1,0 +1,5 @@
+/src/main/java/net/dacid44/d4ft4/d4ft4_gui/generated
+/src/main/jniLibs/**/*.so
+/src/main/assets/tauri.conf.json
+/tauri.build.gradle.kts
+/proguard-tauri.pro
