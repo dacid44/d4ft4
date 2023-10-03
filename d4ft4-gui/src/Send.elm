@@ -12,6 +12,7 @@ import W.Button as Button
 import W.ButtonGroup as ButtonGroup
 import W.Container as Container
 import W.InputTextArea as InputTextArea
+import W.InputText as InputText
 import W.Modal as Modal
 import W.Text as Text
 
@@ -48,6 +49,7 @@ type alias Model =
     { mode : Mode
     , text : String
     , files : List String
+    , password : String
     , destination : Peer.Model
     , isSuccess : Bool
     , messages : List String
@@ -59,6 +61,7 @@ init =
     { mode = Text
     , text = ""
     , files = []
+    , password = ""
     , destination = Peer.init Peer.Connect
     , isSuccess = False
     , messages = []
@@ -115,18 +118,30 @@ view backMsg convertMsg model =
         , Html.map convertMsg <|
             Container.view
                 [ Container.horizontal
+                ]
+                [ InputText.view
+                    [ InputText.password
+                    , InputText.small
+                    , InputText.prefix [ Text.view [ Text.color Theme.baseForeground ] [ text "Password:" ] ]
+                    ]
+                    { onInput = PasswordChanged
+                    , value = model.password
+                    }
+                ]
+        , Html.map convertMsg <|
+            Container.view
+                [ Container.horizontal
                 , Container.gap_3
                 , Container.alignCenterY
                 ]
-                [ Modal.viewToggle "send-destination"
-                    [ Button.viewDummy [] [ text "Configure destination..." ] ]
+                [ Button.view [] { label = [ text "Configure destination..." ], onClick = DestinationMsg Peer.Open }
                 , Peer.statusString model.destination
                 , if model.isSuccess then
                     Text.view [ Text.color Theme.primaryForeground ] [ text "Success!" ]
 
                   else
                     text ""
-                , Html.map DestinationMsg (Peer.view "send-destination" model.destination)
+                , Html.map DestinationMsg (Peer.view model.destination)
 
                 -- change this to an actual view later
                 , Container.view [ Container.styleAttrs [ ( "margin-left", "auto" ) ] ]
@@ -138,6 +153,7 @@ view backMsg convertMsg model =
 type Msg
     = ModeChanged Mode
     | TextChanged String
+    | PasswordChanged String
     | DestinationMsg Peer.Msg
     | Send
     | ReturnSetup ( Int, Maybe String )
@@ -152,6 +168,9 @@ update msg model =
 
         TextChanged text ->
             ( { model | text = text }, Cmd.none )
+
+        PasswordChanged password ->
+            ( { model | password = password }, Cmd.none )
 
         DestinationMsg subMsg ->
             let

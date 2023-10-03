@@ -1,15 +1,16 @@
-module Peer exposing (Mode(..), Model, Msg, addressString, init, statusString, update, view)
+module Peer exposing (Mode(..), Model, Msg(..), addressString, init, statusString, update, view)
 
+import Browser.Dom
 import Html exposing (..)
-import Html.Attributes exposing (style, width)
+import Html.Attributes
 import Maybe.Extra
+import Task
 import Theme
 import W.Button as Button
 import W.ButtonGroup as ButtonGroup
 import W.Container as Container
 import W.Heading as Heading
 import W.InputInt as InputInt
-import W.InputSelect as InputSelect
 import W.InputText as InputText
 import W.Modal as Modal
 import W.Text as Text
@@ -44,7 +45,8 @@ modeAddressPlaceholder mode =
 
 
 type alias Model =
-    { mode : Mode
+    { isOpen : Bool
+    , mode : Mode
     , address : String
     , portNum : InputInt.Value
     }
@@ -94,16 +96,18 @@ statusString model =
 
 init : Mode -> Model
 init defaultMode =
-    { mode = defaultMode
+    { isOpen = False
+    , mode = defaultMode
     , address = ""
     , portNum = InputInt.init (Just 2581)
     }
 
 
-view : String -> Model -> Html Msg
-view id model =
-    Modal.viewToggableWithAutoClose []
-        { id = id
+view : Model -> Html Msg
+view model =
+    Modal.view []
+        { isOpen = model.isOpen
+        , onClose = Just Close
         , content =
             [ Container.view
                 [ Container.vertical
@@ -131,6 +135,8 @@ view id model =
                             [ InputText.placeholder (modeAddressPlaceholder model.mode)
                             , InputText.small
                             , InputText.prefix [ text "Address" ]
+                            , InputText.onEnter Close
+                            , InputText.htmlAttrs [ Html.Attributes.id "peer-address-field" ]
                             ]
                             { onInput = AddressChanged, value = model.address }
                         ]
@@ -138,14 +144,14 @@ view id model =
                         [ InputInt.view
                             [ InputInt.small
                             , InputInt.prefix [ text "Port" ]
+                            , InputInt.onEnter Close
                             ]
                             { onInput = PortChanged, value = model.portNum }
                         ]
                     ]
                 , Container.view [ Container.horizontal, Container.alignCenterY, Container.spaceBetween, Container.padTop_4 ]
                     [ statusString model
-                    , Modal.viewToggle id
-                        [ Button.viewDummy [ Button.primary ] [ text "Done" ] ]
+                    , Button.view [ Button.primary ] { label = [ text "Done" ], onClick = Close }
                     ]
                 ]
             ]
@@ -156,14 +162,14 @@ type Msg
     = ModeChanged Mode
     | AddressChanged String
     | PortChanged InputInt.Value
+    | Open
+    | Close
+    | NoOp
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case msg of
-        --DropdownMsg subMsg ->
-        --    let ( state, cmd ) = Dropdown.update dropdownConfig subMsg model.mode model.dropdownState in
-        --        ( { model | dropdownState = state }, cmd )
         ModeChanged mode ->
             ( { model | mode = mode }, Cmd.none )
 
@@ -172,6 +178,15 @@ update msg model =
 
         PortChanged portNum ->
             ( { model | portNum = portNum }, Cmd.none )
+
+        Open ->
+            ( { model | isOpen = True }, Browser.Dom.focus "peer-address-field" |> Task.attempt (\_ -> NoOp) )
+
+        Close ->
+            ( { model | isOpen = False }, Cmd.none )
+
+        NoOp ->
+            ( model, Cmd.none )
 
 
 errorText : String -> Html msg

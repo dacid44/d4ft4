@@ -11,7 +11,7 @@ import W.Button as Button
 import W.ButtonGroup as ButtonGroup
 import W.Container as Container
 import W.InputTextArea as InputTextArea
-import W.Modal as Modal
+import W.InputText as InputText
 import W.Text as Text
 
 
@@ -54,6 +54,7 @@ type alias Model =
     { mode : Mode
     , source : Peer.Model
     , text : String
+    , password : String
     , isConnected : Bool
     , messages : List String
     }
@@ -64,6 +65,7 @@ init =
     { mode = Text
     , source = Peer.init Peer.Listen
     , text = ""
+    , password = ""
     , isConnected = False
     , messages = []
     }
@@ -102,10 +104,22 @@ view backMsg convertMsg model =
                 , Container.gap_3
                 , Container.alignCenterY
                 ]
-                [ Modal.viewToggle "receive-peer"
-                    [ Button.viewDummy [] [ text "Configure source..." ] ]
+                [ Button.view [] { label = [ text "Configure source..." ], onClick = SourceMsg Peer.Open }
                 , Peer.statusString model.source
-                , Html.map SourceMsg (Peer.view "receive-peer" model.source)
+                , Html.map SourceMsg (Peer.view model.source)
+                ]
+        , Html.map convertMsg <|
+            Container.view
+                [ Container.horizontal
+                ]
+                [ InputText.view
+                    [ InputText.password
+                    , InputText.small
+                    , InputText.prefix [ Text.view [ Text.color Theme.baseForeground ] [ text "Password:" ] ]
+                    ]
+                    { onInput = PasswordChanged
+                    , value = model.password
+                    }
                 ]
         , Html.map convertMsg <|
             -- change this to an actual view later
@@ -149,6 +163,7 @@ view backMsg convertMsg model =
 type Msg
     = ModeChanged Mode
     | TextChanged String
+    | PasswordChanged String
     | SourceMsg Peer.Msg
     | Connect
     | Receive
@@ -164,6 +179,9 @@ update msg model =
 
         TextChanged text ->
             ( { model | text = text }, Cmd.none )
+
+        PasswordChanged password ->
+            ( { model | password = password }, Cmd.none )
 
         SourceMsg subMsg ->
             let
