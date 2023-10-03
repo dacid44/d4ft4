@@ -168,7 +168,7 @@ type Msg
     | Connect
     | Receive
     | ReturnSetup ( Int, Maybe String )
-    | ReturnReceiveText ( Int, String )
+    | ReturnReceiveText ( Int, Maybe (Result String String) )
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -219,12 +219,13 @@ update msg model =
                 Nothing ->
                     ( { model | isConnected = True }, Cmd.none )
 
-        ReturnReceiveText ( 1, message ) ->
-            if String.startsWith "Error" message then
-                ( { model | messages = model.messages ++ [ message ] }, Cmd.none )
-
-            else
-                ( { model | text = message }, Cmd.none )
+        ReturnReceiveText ( 1, Just message ) ->
+            case message of
+                Ok text ->
+                    ( { model | text = text }, Cmd.none )
+                
+                Err err ->
+                    ( { model | messages = model.messages ++ [ err ] }, Cmd.none )
 
         _ ->
             ( model, Cmd.none )
@@ -234,5 +235,5 @@ subscriptions : Model -> Sub Msg
 subscriptions model =
     Sub.batch
         [ Common.returnSetup ReturnSetup
-        , Common.returnReceiveText ReturnReceiveText
+        , Common.returnReceiveText (Common.decodeIdentifiedStringResult >> ReturnReceiveText)
         ]

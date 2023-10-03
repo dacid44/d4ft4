@@ -74,17 +74,14 @@ async fn send_text(
 async fn receive_text(
     connections: tauri::State<'_, Connections>,
     conn_id: usize,
-) -> Result<(usize, String), ()> {
-    match &mut *connections.0[conn_id].lock().await {
-        Some(connection) => Ok((
-            conn_id,
-            match connection.receive_text().await {
-                Ok(text) => text,
-                Err(error) => format!("Error: {}, source: {:?}", error, error.source()),
-            },
-        )),
-        None => Ok((conn_id, "Error: connection not initialized".to_string())),
-    }
+) -> Result<(usize, Result<String, String>), ()> {
+    Ok((conn_id, match &mut *connections.0[conn_id].lock().await {
+        Some(connection) => match connection.receive_text().await {
+            Ok(text) => Ok(text),
+            Err(error) => Err(format!("Error: {}, source: {:?}", error, error.source())),
+        },
+        None => Err("Error: connection not initialized".to_string()),
+    }))
 }
 
 #[tauri::command]

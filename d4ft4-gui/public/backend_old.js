@@ -1,16 +1,7 @@
-function returnQueue(callPort, returnPort) {
-    if (!(callPort in app.ports))
-        throw new Error(`Missing call port: ${callPort}`);
-    if (!(returnPort in app.ports))
-        throw new Error(`Missing return port: ${returnPort}`);
-
+function addFunction(app, name, args, callPort, returnPort) {
     let nextCallId = 0;
     let nextReturnId = 0;
     let waitingResponses = new Map();
-
-    function nextId() {
-        return nextReturnId++;
-    }
 
     function returnWaiting() {
         while (waitingResponses.has(nextReturnId)) {
@@ -20,45 +11,24 @@ function returnQueue(callPort, returnPort) {
         }
     }
 
-    function handleResponse(id, value) {
-        if (id == nextReturnId) {
-            app.ports[returnPort].send(value);
-            nextReturnId++;
-            returnWaiting();
-        } else {
-            waitingResponses.set(id, value);
-        }
-    }
-
-    return { nextId, handleResponse }
-}
-
-function addFunction(app, name, args, callPort, returnPort) {
-    let queue = returnQueue(callPort, returnPort);
+    if (!(callPort in app.ports))
+        throw new Error(`Missing call port: ${callPort}`);
+    if (!(returnPort in app.ports))
+        throw new Error(`Missing return port: ${returnPort}`);
 
     app.ports[callPort].subscribe(value => {
-        const id = queue.nextId();
+        const id = nextCallId++;
         invoke(name, args(value))
             .then(value => {
-                queue.handleResponse(id, value);
+                if (id === nextReturnId) {
+                    app.ports[returnPort].send(value);
+                    nextReturnId++;
+                    returnWaiting();
+                } else {
+                    waitingResponses.set(id, value);
+                }
             });
     });
-}
-
-// returns a Result from the command
-function addFallibleFunction(app, name, args, callPort, returnPort) {
-    let queue = returnQueue(callPort, returnPort);
-
-    app.ports[callPort].subscribe(value => {
-        const id = queue.nextId();
-        invoke(name, args(value))
-            .then(value => {
-                queue.handleResponse(id, { Ok: value })
-            })
-            .catch(error => {
-                queue.handleResponse(id, { Err: error })
-            })
-    })
 }
 
 function initBackend(app) {
