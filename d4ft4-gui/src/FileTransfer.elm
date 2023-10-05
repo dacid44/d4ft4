@@ -1,8 +1,9 @@
 module FileTransfer exposing (main)
 
 import Browser
-import Common exposing (returnSetup)
+import Common
 import Home
+import Json.Decode
 import Receive
 import Send
 import Theme
@@ -69,6 +70,7 @@ type Msg
     | HomeMsg Home.Msg
     | SendMsg Send.Msg
     | ReceiveMsg Receive.Msg
+    | ReceiveResponse (Result Json.Decode.Error (Common.Message Common.Response))
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -98,12 +100,30 @@ update msg model =
             in
             ( { model | receive = subModel }, Cmd.map ReceiveMsg subCmd )
 
+        ReceiveResponse maybeMessage ->
+            case maybeMessage of
+                Ok ({ returnPath } as fullMessage) ->
+                    case returnPath of
+                        "Send" :: pathTail ->
+                            update (SendMsg <| Send.ReceiveResponse { fullMessage | returnPath = pathTail }) model
+
+                        "Receive" :: pathTail ->
+                            update (ReceiveMsg <| Receive.ReceiveResponse { fullMessage | returnPath = pathTail }) model
+
+                        _ ->
+                            ( model, Cmd.none )
+
+                Err _ ->
+                    ( model, Cmd.none )
+
 
 subscriptions : Model -> Sub Msg
 subscriptions model =
     Sub.batch
         [ Sub.map SendMsg (Send.subscriptions model.send)
         , Sub.map ReceiveMsg (Receive.subscriptions model.receive)
+        , Common.returnOpenFileDialog (Send.PathAdded >> SendMsg)
+        , Common.receiveResponse (Json.Decode.decodeValue Common.decodeResponse >> ReceiveResponse)
         ]
 
 

@@ -50,6 +50,8 @@
         "certificateThumbprint": null,
         "digestAlgorithm": "sha256",
         "timestampUrl": ""
+      },
+      "android": {
       }
     },
     "security": {

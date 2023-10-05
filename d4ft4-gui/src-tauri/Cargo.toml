@@ -23,6 +23,8 @@ d4ft4 = { path = "../../d4ft4" }
 serde_json = "1.0"
 serde = { version = "1.0", features = ["derive"] }
 tauri = { version = "2.0.0-alpha.14", features = [] }
+tauri-plugin-dialog = { git = "https://github.com/tauri-apps/plugins-workspace", branch = "v2" }
+tauri-plugin-fs = { git = "https://github.com/tauri-apps/plugins-workspace", branch = "v2" }
 tokio = { version = "1.31", features = [ "full", "tracing" ] }
 #console-subscriber = "0.1.10"
 

@@ -1,4 +1,4 @@
-module Receive exposing (Model, Msg, init, subscriptions, update, view)
+module Receive exposing (Model, Msg(..), init, subscriptions, update, view)
 
 import Common
 import Html exposing (..)
@@ -10,8 +10,8 @@ import Theme
 import W.Button as Button
 import W.ButtonGroup as ButtonGroup
 import W.Container as Container
-import W.InputTextArea as InputTextArea
 import W.InputText as InputText
+import W.InputTextArea as InputTextArea
 import W.Text as Text
 
 
@@ -169,6 +169,7 @@ type Msg
     | Receive
     | ReturnSetup ( Int, Maybe String )
     | ReturnReceiveText ( Int, Maybe (Result String String) )
+    | ReceiveResponse (Common.Message Common.Response)
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -194,13 +195,18 @@ update msg model =
             ( { model | isConnected = False }
             , case Peer.addressString model.source of
                 Just address ->
-                    Common.callSetup
-                        { connId = 1
-                        , address = address
-                        , isServer = model.source.mode == Peer.Listen
-                        , mode = modeString model.mode
-                        , password = ""
-                        }
+                    Common.sendCall <|
+                        Common.encodeCall
+                            { returnPath = [ "Receive", "Text" ]
+                            , message =
+                                Common.Setup
+                                    { connId = 1
+                                    , address = address
+                                    , isServer = model.source.mode == Peer.Listen
+                                    , mode = Common.ReceiveTextMode
+                                    , password = model.password
+                                    }
+                            }
 
                 Nothing ->
                     Cmd.none
@@ -208,24 +214,29 @@ update msg model =
 
         Receive ->
             ( model
-            , Common.callReceiveText { connId = 1 }
+            , Common.sendCall <|
+                Common.encodeCall
+                    { returnPath = [ "Receive" ]
+                    , message = Common.ReceiveText { connId = 1 }
+                    }
             )
 
-        ReturnSetup ( 1, message ) ->
-            case message of
-                Just error ->
+        ReceiveResponse { returnPath, message } ->
+            case ( returnPath, message ) of
+                ( _, Common.SetupComplete (Err error) ) ->
                     ( { model | messages = model.messages ++ [ error ] }, Cmd.none )
 
-                Nothing ->
+                ( [ "Text" ], Common.SetupComplete (Ok _) ) ->
                     ( { model | isConnected = True }, Cmd.none )
 
-        ReturnReceiveText ( 1, Just message ) ->
-            case message of
-                Ok text ->
+                ( _, Common.TextReceived (Err error) ) ->
+                    ( { model | messages = model.messages ++ [ error ] }, Cmd.none )
+
+                ( _, Common.TextReceived (Ok text) ) ->
                     ( { model | text = text }, Cmd.none )
-                
-                Err err ->
-                    ( { model | messages = model.messages ++ [ err ] }, Cmd.none )
+
+                _ ->
+                    ( model, Cmd.none )
 
         _ ->
             ( model, Cmd.none )
@@ -233,7 +244,4 @@ update msg model =
 
 subscriptions : Model -> Sub Msg
 subscriptions model =
-    Sub.batch
-        [ Common.returnSetup ReturnSetup
-        , Common.returnReceiveText (Common.decodeIdentifiedStringResult >> ReturnReceiveText)
-        ]
+    Sub.none

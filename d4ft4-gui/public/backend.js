@@ -9,7 +9,7 @@ function returnQueue(callPort, returnPort) {
     let waitingResponses = new Map();
 
     function nextId() {
-        return nextReturnId++;
+        return nextCallId++;
     }
 
     function returnWaiting() {
@@ -38,8 +38,10 @@ function addFunction(app, name, args, callPort, returnPort) {
 
     app.ports[callPort].subscribe(value => {
         const id = queue.nextId();
+        console.log("call", name, id, value);
         invoke(name, args(value))
             .then(value => {
+                console.log("response", name, id, value);
                 queue.handleResponse(id, value);
             });
     });
@@ -61,15 +63,22 @@ function addFallibleFunction(app, name, args, callPort, returnPort) {
     })
 }
 
+async function handleResponses(app) {
+    while (true) {
+        app.ports.receiveResponse.send(
+            await invoke("receive_response")
+        );
+    }
+}
+
 function initBackend(app) {
-    addFunction(app, "setup", ({ connId, address, isServer, mode, password }) => ({ connId, address, isServer, mode, password }), "callSetup", "returnSetup");
-    addFunction(app, "send_text", ({ connId, text }) => ({ connId, text}), "callSendText", "returnSendText");
-    addFunction(app, "receive_text", ({ connId }) => ({ connId }), "callReceiveText", "returnReceiveText");
-    // addFunction(app, "send_file", ({ connId, path }) => ({ connId, path }), "callSendFile", "returnSendFile");
-    // addFunction(app, "receive_file", ({ connId, path }) => ({ connId, path }), "callReceiveFile", "returnReceiveFile");
+    // addFunction(app, "handle_message", (call) => ({ call }), "sendCall", "receiveResponse");
 
     // app.ports.callSelectFile.subscribe(({ connId, save }) => {
     //     (save ? dialog.save() : dialog.open({ directory: false, multiple: false }))
     //         .then(path => app.ports.returnSelectFile.send([connId, path]));
     // })
+    // addFunction(app, "open_file_dialog", (save) => ({ save }), "callOpenFileDialog", "returnOpenFileDialog");
+    app.ports.sendCall.subscribe(call => invoke("handle_message", { call }));
+    handleResponses(app);
 }

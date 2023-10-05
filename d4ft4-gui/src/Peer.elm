@@ -3,6 +3,7 @@ module Peer exposing (Mode(..), Model, Msg(..), addressString, init, statusStrin
 import Browser.Dom
 import Html exposing (..)
 import Html.Attributes
+import Material.Icons exposing (mode)
 import Maybe.Extra
 import Task
 import Theme
@@ -38,7 +39,7 @@ modeAddressPlaceholder : Mode -> String
 modeAddressPlaceholder mode =
     case mode of
         Connect ->
-            "192.168.1.10"
+            "127.0.0.1"
 
         Listen ->
             "0.0.0.0"
@@ -52,25 +53,44 @@ type alias Model =
     }
 
 
+addressOrDefault : Mode -> String -> Maybe String
+addressOrDefault mode address =
+    if String.isEmpty <| String.trim address then
+        if String.isEmpty address then
+            Just <| modeAddressPlaceholder mode
+
+        else
+            Nothing
+
+    else
+        Just address
+
+
 addressString : Model -> Maybe String
 addressString model =
     model.portNum
         |> InputInt.toInt
-        |> Maybe.Extra.filter (\portNum -> portNum >= 0 && portNum <= 65535 && not (String.isEmpty model.address))
-        |> Maybe.map (\portNum -> model.address ++ ":" ++ String.fromInt portNum)
+        |> Maybe.Extra.filter (\portNum -> portNum >= 0 && portNum <= 65535)
+        |> Maybe.andThen (\portNum -> addressOrDefault model.mode model.address |> Maybe.map (Tuple.pair portNum))
+        |> Maybe.map
+            (\( portNum, address ) ->
+                address
+                    ++ ":"
+                    ++ String.fromInt portNum
+            )
 
 
 statusString : Model -> Html msg
 statusString model =
-    case InputInt.toInt model.portNum of
-        Nothing ->
+    case ( InputInt.toInt model.portNum, addressOrDefault model.mode model.address ) of
+        ( Nothing, _ ) ->
             errorText "Invalid port"
+        
+        ( Just _, Nothing ) ->
+            errorText "No address given"
 
-        Just portNum ->
-            if String.isEmpty model.address then
-                errorText "No address given"
-
-            else if portNum < 0 then
+        ( Just portNum, Just address ) ->
+            if portNum < 0 then
                 errorText "Port cannot be negative"
 
             else if portNum > 65535 then
@@ -84,7 +104,7 @@ statusString model =
                     Listen ->
                         "Listen, bind to "
                 )
-                    ++ model.address
+                    ++ address
                     ++ ":"
                     ++ String.fromInt portNum
                     |> text

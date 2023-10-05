@@ -1,122 +1,173 @@
-use std::{error::Error, path::PathBuf};
+use std::sync::OnceLock;
+use std::{error::Error, fmt::Debug, io::Read, path::PathBuf};
 
 use d4ft4::D4FTResult;
-use tauri::async_runtime::Mutex;
+use tauri::async_runtime::{channel, Mutex, Receiver, Sender};
+use tauri_plugin_dialog::DialogExt;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // console_subscriber::init();
 
     tauri::Builder::default()
-        .manage(Connections::new())
-        .invoke_handler(tauri::generate_handler![
-            setup,
-            send_text,
-            receive_text,
-            send_file,
-            receive_file
-        ])
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_fs::init())
+        .manage(State::new())
+        .invoke_handler(tauri::generate_handler![handle_message, receive_response, open_file_dialog])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
 
-struct Connections([Mutex<Option<d4ft4::Connection>>; 2]);
+struct State {
+    connections: [Mutex<Option<d4ft4::Connection>>; 2],
+    response_tx: Sender<Message<Response>>,
+    response_rx: Mutex<Receiver<Message<Response>>>,
+}
 
-impl Connections {
+impl State {
     fn new() -> Self {
-        Self([Mutex::new(None), Mutex::new(None)])
-    }
-}
-
-#[tauri::command]
-async fn setup(
-    connections: tauri::State<'_, Connections>,
-    address: String,
-    conn_id: usize,
-    is_server: bool,
-    mode: d4ft4::TransferMode,
-    password: String,
-) -> Result<(usize, Option<String>), ()> {
-    let connection = if is_server {
-        d4ft4::Connection::listen(address, mode, password).await
-    } else {
-        d4ft4::Connection::connect(address, mode, password).await
-    };
-
-    Ok(match connection {
-        Ok(connection) => {
-            *connections.0[conn_id].lock().await = Some(connection);
-            (conn_id, None)
+        let (tx, rx) = channel(16);
+        Self {
+            connections: [Mutex::new(None), Mutex::new(None)],
+            response_tx: tx,
+            response_rx: Mutex::new(rx),
         }
-        Err(error) => (
-            conn_id,
-            Some(format!("Error: {}, source: {:?}", error, error.source())),
-        ),
-    })
-}
-
-#[tauri::command]
-async fn send_text(
-    connections: tauri::State<'_, Connections>,
-    conn_id: usize,
-    text: String,
-) -> Result<(usize, Option<String>), ()> {
-    match &mut *connections.0[conn_id].lock().await {
-        Some(connection) => handle_error(connection.send_text(text).await.map(|_| None), conn_id),
-        None => Ok((
-            conn_id,
-            Some("Error: connection not initialized".to_string()),
-        )),
     }
 }
 
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "kebab-case")]
+struct Message<T> {
+    return_path: Vec<String>,
+    message: T,
+}
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(tag = "name", content = "args")]
+enum Call {
+    #[serde(rename_all = "kebab-case")]
+    Setup {
+        conn_id: usize,
+        address: String,
+        is_server: bool,
+        mode: d4ft4::TransferMode,
+        password: String,
+    },
+    #[serde(rename_all = "kebab-case")]
+    SendText { conn_id: usize, text: String },
+    #[serde(rename_all = "kebab-case")]
+    ReceiveText { conn_id: usize },
+    // SendFile { conn_id: usize, path: String },
+    // ReceiveFile { conn_id: usize, path: String },
+}
+
+#[derive(Debug, serde::Serialize)]
+#[serde(tag = "name")]
+enum Response {
+    SetupComplete(Result<(), String>),
+    TextSent(Result<(), String>),
+    TextReceived(Result<String, String>),
+}
+
 #[tauri::command]
-async fn receive_text(
-    connections: tauri::State<'_, Connections>,
-    conn_id: usize,
-) -> Result<(usize, Result<String, String>), ()> {
-    Ok((conn_id, match &mut *connections.0[conn_id].lock().await {
-        Some(connection) => match connection.receive_text().await {
-            Ok(text) => Ok(text),
-            Err(error) => Err(format!("Error: {}, source: {:?}", error, error.source())),
+async fn handle_message(
+    state: tauri::State<'_, State>,
+    call: Message<Call>,
+) -> Result<(), String> {
+    dbg!(&call);
+    let response = Message {
+        return_path: call.return_path,
+        message: match call.message {
+            Call::Setup {
+                conn_id,
+                address,
+                is_server,
+                mode,
+                password,
+            } => {
+                let connection = if is_server {
+                    d4ft4::Connection::listen(address, mode, password).await
+                } else {
+                    d4ft4::Connection::connect(address, mode, password).await
+                };
+                Response::SetupComplete(match connection {
+                    Ok(connection) => {
+                        *state.connections[conn_id].lock().await = Some(connection);
+                        Ok(())
+                    }
+                    Err(err) => Err(format!("{:?}", err)),
+                })
+            }
+            Call::SendText { conn_id, text } => Response::TextSent(
+                if let Some(connection) = state.connections[conn_id].lock().await.as_mut() {
+                    connection
+                        .send_text(text)
+                        .await
+                        .map_err(|err| format!("{:?}", err))
+                } else {
+                    Err("connection not initialized".to_string())
+                },
+            ),
+            Call::ReceiveText { conn_id } => Response::TextReceived(
+                if let Some(connection) = state.connections[conn_id].lock().await.as_mut() {
+                    connection
+                        .receive_text()
+                        .await
+                        .map_err(|err| format!("{:?}", err))
+                } else {
+                    Err("connection not initialized".to_string())
+                },
+            ),
         },
-        None => Err("Error: connection not initialized".to_string()),
-    }))
+    };
+    state.response_tx.send(response).await
+        .map_err(|_| "channel send error".to_string())
 }
 
 #[tauri::command]
-async fn send_file(
-    connections: tauri::State<'_, Connections>,
-    conn_id: usize,
-    path: PathBuf,
-) -> Result<(usize, Option<String>), ()> {
-    println!("send_file conn_id={conn_id}");
-    match &mut *connections.0[conn_id].lock().await {
-        Some(connection) => handle_error(connection.send_file(path).await.map(|_| None), conn_id),
-        None => Ok((
-            conn_id,
-            Some("Error: connection not initialized".to_string()),
-        )),
-    }
+async fn receive_response(state: tauri::State<'_, State>) -> Result<Message<Response>, String> {
+    state
+        .response_rx
+        .lock()
+        .await
+        .recv()
+        .await
+        .ok_or("channel closed".to_string())
 }
 
-#[tauri::command]
-async fn receive_file(
-    connections: tauri::State<'_, Connections>,
-    conn_id: usize,
-    path: PathBuf,
-) -> Result<(usize, Option<String>), ()> {
-    println!("send_file conn_id={conn_id}");
-    match &mut *connections.0[conn_id].lock().await {
-        Some(connection) => {
-            handle_error(connection.receive_file(path).await.map(|_| None), conn_id)
-        }
-        None => Ok((
-            conn_id,
-            Some("Error: connection not initialized".to_string()),
-        )),
-    }
-}
+// #[tauri::command]
+// async fn send_file(
+//     connections: tauri::State<'_, State>,
+//     conn_id: usize,
+//     path: PathBuf,
+// ) -> Result<(usize, Option<String>), ()> {
+//     println!("send_file conn_id={conn_id}");
+//     match &mut *connections.0[conn_id].lock().await {
+//         Some(connection) => handle_error(connection.send_file(path).await.map(|_| None), conn_id),
+//         None => Ok((
+//             conn_id,
+//             Some("Error: connection not initialized".to_string()),
+//         )),
+//     }
+// }
+
+// #[tauri::command]
+// async fn receive_file(
+//     connections: tauri::State<'_, State>,
+//     conn_id: usize,
+//     path: PathBuf,
+// ) -> Result<(usize, Option<String>), ()> {
+//     println!("send_file conn_id={conn_id}");
+//     match &mut *connections.0[conn_id].lock().await {
+//         Some(connection) => {
+//             handle_error(connection.receive_file(path).await.map(|_| None), conn_id)
+//         }
+//         None => Ok((
+//             conn_id,
+//             Some("Error: connection not initialized".to_string()),
+//         )),
+//     }
+// }
 
 fn handle_error(
     result: d4ft4::D4FTResult<Option<String>>,
@@ -129,4 +180,29 @@ fn handle_error(
             Some(format!("Error: {}, source: {:?}", error, error.source())),
         )),
     }
+}
+
+#[tauri::command]
+async fn open_file_dialog(app: tauri::AppHandle, save: bool) -> Result<Option<String>, ()> {
+    Ok(if save {
+        // app.dialog().file().save_file(|_| ());
+        None
+    } else {
+        app.dialog().file().blocking_pick_file().map(|response| {
+            let path = response.path;
+            let mut buf = [0u8; 4];
+            let result =
+                std::fs::File::open(path.clone().join(response.name.clone().unwrap_or_default()))
+                    .and_then(|mut f| f.read_exact(&mut buf));
+            format!(
+                "path: {:?}, name: {:?}, {}",
+                path,
+                response.name,
+                match result {
+                    Ok(_) => format!("{buf:?}"),
+                    Err(err) => format!("{err:?}"),
+                }
+            )
+        })
+    })
 }

@@ -11,8 +11,8 @@ import Theme
 import W.Button as Button
 import W.ButtonGroup as ButtonGroup
 import W.Container as Container
-import W.InputTextArea as InputTextArea
 import W.InputText as InputText
+import W.InputTextArea as InputTextArea
 import W.Modal as Modal
 import W.Text as Text
 
@@ -114,7 +114,17 @@ view backMsg convertMsg model =
                         )
 
                 File ->
-                    text "file"
+                    Container.view
+                        [ Container.vertical
+                        , Container.pad_4
+                        , Container.gap_3
+                        , Container.card
+                        , Container.background Theme.neutralBackground
+                        , Container.fill
+                        ]
+                        ([ Button.view [ Button.primary ] { label = [ text "Pick File" ], onClick = SelectFile } ]
+                            ++ List.map (text >> List.singleton >> p []) model.files
+                        )
         , Html.map convertMsg <|
             Container.view
                 [ Container.horizontal
@@ -156,8 +166,9 @@ type Msg
     | PasswordChanged String
     | DestinationMsg Peer.Msg
     | Send
-    | ReturnSetup ( Int, Maybe String )
-    | ReturnSendText ( Int, Maybe String )
+    | ReceiveResponse (Common.Message Common.Response)
+    | SelectFile
+    | PathAdded (Maybe String)
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -183,46 +194,56 @@ update msg model =
             ( { model | isSuccess = False }
             , case Peer.addressString model.destination of
                 Just address ->
-                    Common.callSetup
-                        { connId = 0
-                        , address = address
-                        , isServer = model.destination.mode == Peer.Listen
-                        , mode = modeString model.mode
-                        , password = ""
-                        }
+                    Common.sendCall <|
+                        Common.encodeCall
+                            { returnPath = [ "Send", "Text" ]
+                            , message =
+                                Common.Setup
+                                    { connId = 0
+                                    , address = address
+                                    , isServer = model.destination.mode == Peer.Listen
+                                    , mode = Common.SendTextMode
+                                    , password = model.password
+                                    }
+                            }
 
                 Nothing ->
                     Cmd.none
             )
 
-        ReturnSetup ( 0, message ) ->
-            case message of
-                Just error ->
+        ReceiveResponse { returnPath, message } ->
+            case ( returnPath, message ) of
+                ( _, Common.SetupComplete (Err error) ) ->
                     ( { model | messages = model.messages ++ [ error ] }, Cmd.none )
 
-                Nothing ->
+                ( [ "Text" ], Common.SetupComplete (Ok _) ) ->
                     ( model
-                    , Common.callSendText
-                        { connId = 0
-                        , text = model.text
-                        }
+                    , Common.sendCall <|
+                        Common.encodeCall
+                            { returnPath = [ "Send" ]
+                            , message = Common.SendText { connId = 0, text = model.text }
+                            }
                     )
 
-        ReturnSendText ( 0, message ) ->
-            case message of
-                Just error ->
+                ( _, Common.TextSent (Err error) ) ->
                     ( { model | messages = model.messages ++ [ error ] }, Cmd.none )
 
-                Nothing ->
+                ( _, Common.TextSent (Ok _) ) ->
                     ( { model | isSuccess = True }, Cmd.none )
 
-        _ ->
-            ( model, Cmd.none )
+                _ ->
+                    ( model, Cmd.none )
+
+        SelectFile ->
+            ( model, Common.callOpenFileDialog False )
+
+        PathAdded path ->
+            ( { model | files = model.files ++ Maybe.Extra.toList path }, Cmd.none )
+
+        -- _ ->
+        --     ( model, Cmd.none )
 
 
 subscriptions : Model -> Sub Msg
 subscriptions model =
-    Sub.batch
-        [ Common.returnSetup ReturnSetup
-        , Common.returnSendText ReturnSendText
-        ]
+    Sub.none
