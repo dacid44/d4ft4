@@ -1,5 +1,4 @@
-use std::sync::OnceLock;
-use std::{error::Error, fmt::Debug, io::Read, path::PathBuf};
+use std::{error::Error, fmt::Debug, io::Read};
 
 use d4ft4::D4FTResult;
 use tauri::async_runtime::{channel, Mutex, Receiver, Sender};

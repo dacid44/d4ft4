@@ -1,8 +1,8 @@
 {
   "build": {
-    "beforeBuildCommand": "elm make src/FileTransfer.elm --output=public/main.js",
-    "beforeDevCommand": "elm make src/FileTransfer.elm --output=public/main.js",
-    "devPath": "../public",
+    "beforeBuildCommand": "elm make src/FileTransfer.elm --output=public/main.js --optimize",
+    "beforeDevCommand": "elm-live src/FileTransfer.elm --port=4000 --hot --dir=./public -- --output=public/main.js",
+    "devPath": "http://localhost:4000",
     "distDir": "../public",
     "withGlobalTauri": true
   },
