@@ -26,7 +26,11 @@ tauri = { version = "2.0.0-alpha.14", features = [] }
 tauri-plugin-dialog = { git = "https://github.com/tauri-apps/plugins-workspace", branch = "v2" }
 tauri-plugin-fs = { git = "https://github.com/tauri-apps/plugins-workspace", branch = "v2" }
 tokio = { version = "1.31", features = [ "full", "tracing" ] }
+wry = { version = "0.33", default-features = false }
 #console-subscriber = "0.1.10"
+
+#[target.'cfg(android)'.dependencies]
+jni = "0.21.1"
 
 [features]
 # this feature is used for production builds or when `devPath` points to the filesystem and the built-in dev server is disabled.

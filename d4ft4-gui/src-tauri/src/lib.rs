@@ -2,7 +2,11 @@ use std::{error::Error, fmt::Debug, io::Read};
 
 use d4ft4::D4FTResult;
 use tauri::async_runtime::{channel, Mutex, Receiver, Sender};
+use tauri::Manager;
 use tauri_plugin_dialog::DialogExt;
+
+#[cfg(target_os = "android")]
+mod android;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -181,6 +185,7 @@ fn handle_error(
     }
 }
 
+#[cfg(not(target_os = "android"))]
 #[tauri::command]
 async fn open_file_dialog(app: tauri::AppHandle, save: bool) -> Result<Option<String>, ()> {
     Ok(if save {
@@ -197,6 +202,35 @@ async fn open_file_dialog(app: tauri::AppHandle, save: bool) -> Result<Option<St
                 "path: {:?}, name: {:?}, {}",
                 path,
                 response.name,
+                match result {
+                    Ok(_) => format!("{buf:?}"),
+                    Err(err) => format!("{err:?}"),
+                }
+            )
+        })
+    })
+}
+
+#[cfg(target_os = "android")]
+#[tauri::command]
+async fn open_file_dialog(window: tauri::Window, app: tauri::AppHandle, save: bool) -> Result<Option<String>, ()> {
+    Ok(if save {
+        // app.dialog().file().save_file(|_| ());
+        None
+    } else {
+        app.dialog().file().blocking_pick_file().map(|response| {
+            let path = response.path.to_string_lossy().to_string();
+            let mut buf = [0u8; 4];
+            let (tx, rx) = std::sync::mpsc::channel::<Result<std::fs::File, jni::errors::Error>>();
+            window.with_webview(|webview| {
+                android::get_file(webview.jni_handle(), path, "r", move |file| tx.send(file).unwrap() );
+            }).unwrap();
+            let result: Result<_, Box<dyn std::error::Error>> = rx.recv().unwrap()
+                .map_err(Into::into)
+                .and_then(|mut f| f.read_exact(&mut buf).map_err(Into::into));
+            format!(
+                "response: {:?}, {}",
+                response, 
                 match result {
                     Ok(_) => format!("{buf:?}"),
                     Err(err) => format!("{err:?}"),

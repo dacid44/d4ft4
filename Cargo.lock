@@ -706,6 +706,7 @@ name = "d4ft4-gui"
 version = "0.1.0"
 dependencies = [
  "d4ft4",
+ "jni",
  "serde",
  "serde_json",
  "tauri",
@@ -713,6 +714,7 @@ dependencies = [
  "tauri-plugin-dialog",
  "tauri-plugin-fs",
  "tokio",
+ "wry",
 ]
 
 [[package]]

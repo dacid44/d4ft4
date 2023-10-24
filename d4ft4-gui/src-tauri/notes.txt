@@ -1,0 +1,2 @@
+// "beforeDevCommand": "elm-live src/FileTransfer.elm --port=4000 --hot --dir=./public -- --output=public/main.js",
+// "devPath": "http://localhost:4000",
