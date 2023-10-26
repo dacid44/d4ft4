@@ -10,7 +10,7 @@ use std::{
 
 use faccess::PathExt;
 use tokio::{
-    fs,
+    fs::{self, File},
     net::{TcpListener, TcpStream, ToSocketAddrs},
 };
 
@@ -152,14 +152,26 @@ impl Connection {
             .map(|response| response.0)
     }
 
-    pub async fn send_file(&mut self, path: PathBuf) -> D4FTResult<()> {
+    pub async fn send_file_path(&mut self, path: impl AsRef<Path>) -> D4FTResult<()> {
         self.check_mode(TransferMode::SendFile)?;
 
-        let file = fs::File::open(path.clone())
+        let file_obj = fs::File::open(path)
             .await
             .map_err(|source| D4FTError::FileOpenError { source })?;
 
-        let metadata = file
+        self.send_file(
+            file_obj,
+            path.as_ref()
+                .file_name()
+                .map(|s| s.into())
+                .ok_or_else(|| D4FTError::NoFilename { path: path.as_ref().to_path_buf() })?,
+        ).await
+    }
+
+    pub async fn send_file(&mut self, file_obj: File, name: PathBuf) -> D4FTResult<()> {
+        self.check_mode(TransferMode::SendFile)?;
+
+        let metadata = file_obj
             .metadata()
             .await
             .map_err(|source| D4FTError::FileOpenError { source })?;
@@ -167,7 +179,7 @@ impl Connection {
         self.encryptor
             .encode(
                 &protocol::SendFile::File {
-                    path,
+                    path: name,
                     size: metadata.len(),
                     hash: None,
                 },
@@ -183,7 +195,7 @@ impl Connection {
             return Err(D4FTError::RejectedFileTransfer { reason });
         }
 
-        self.encryptor.encode_file(file, &mut self.socket).await
+        self.encryptor.encode_file(file_obj, &mut self.socket).await
     }
 
     pub async fn receive_file(&mut self, path: PathBuf) -> D4FTResult<()> {

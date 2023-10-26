@@ -49,6 +49,9 @@ pub enum D4FTError {
     #[error("error opening file")]
     FileOpenError { source: std::io::Error },
 
+    #[error("no filename found")]
+    NoFilename { path: PathBuf },
+
     #[error("rejected file transfer")]
     RejectedFileTransfer { reason: String },
 

@@ -227,13 +227,13 @@ async fn open_file_dialog(window: tauri::Window, app: tauri::AppHandle, save: bo
             }).unwrap();
             let result: Result<_, Box<dyn std::error::Error>> = rx.recv().unwrap()
                 .map_err(Into::into)
-                .and_then(|mut f| f.read_exact(&mut buf).map_err(Into::into));
+                .and_then(|mut f| f.read_exact(&mut buf).map(|_| f).map_err(Into::into));
             format!(
                 "response: {:?}, {}",
-                response, 
+                response,
                 match result {
-                    Ok(_) => format!("{buf:?}"),
-                    Err(err) => format!("{err:?}"),
+                    Ok(f) => format!("buf: {buf:?}, metadata: {:?}, len: {:?}", f.metadata(), f.metadata().map(|m| m.len())),
+                    Err(err) => format!("error: {err:?}"),
                 }
             )
         })
