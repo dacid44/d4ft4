@@ -25,12 +25,12 @@ type alias Model =
     }
 
 
-init : () -> ( Model, Cmd Msg )
-init _ =
+init : String -> ( Model, Cmd Msg )
+init platform =
     ( { page = Home
       , home = Home.init
       , send = Send.init
-      , receive = Receive.init
+      , receive = Receive.init platform
       }
     , Cmd.none
     )
@@ -127,7 +127,7 @@ subscriptions model =
         ]
 
 
-main : Program () Model Msg
+main : Program String Model Msg
 main =
     Browser.document
         { init = init

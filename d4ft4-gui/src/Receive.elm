@@ -51,7 +51,8 @@ modeString mode =
 
 
 type alias Model =
-    { mode : Mode
+    { platform : String
+    , mode : Mode
     , source : Peer.Model
     , text : String
     , password : String
@@ -60,9 +61,10 @@ type alias Model =
     }
 
 
-init : Model
-init =
-    { mode = Text
+init : String -> Model
+init platform =
+    { platform = platform
+    , mode = Text
     , source = Peer.init Peer.Listen
     , text = ""
     , password = ""

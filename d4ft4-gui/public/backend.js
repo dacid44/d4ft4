@@ -40,7 +40,7 @@ function addFunction(app, name, args, callPort, returnPort) {
 }
 
 function initBackend(app) {
-    addFunction(app, "open_file_dialog", (save) => ({ save }), "callOpenFileDialog", "returnOpenFileDialog");
+    // addFunction(app, "open_file_dialog", (save) => ({ save }), "callOpenFileDialog", "returnOpenFileDialog");
     app.ports.sendCall.subscribe(call => invoke("handle_message", { call }));
     handleResponses(app);
 }

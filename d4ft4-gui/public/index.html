@@ -11,9 +11,11 @@
 <body>
   <div id="myapp"></div>
   <script>
-    const app = Elm.FileTransfer.init();
+    get_platform().then(platform => {
+      const app = Elm.FileTransfer.init({ flags: platform });
 
-    initBackend(app);
+      initBackend(app);
+    })
   </script>
 </body>
 </html>

@@ -13,8 +13,10 @@ import W.ButtonGroup as ButtonGroup
 import W.Container as Container
 import W.InputText as InputText
 import W.InputTextArea as InputTextArea
-import W.Modal as Modal
+import W.InputCheckbox as InputCheckbox
 import W.Text as Text
+import W.Divider as Divider
+import W.DataRow as DataRow
 
 
 type Mode
@@ -48,7 +50,7 @@ modeString mode =
 type alias Model =
     { mode : Mode
     , text : String
-    , files : List String
+    , files : List LoadedFile
     , password : String
     , destination : Peer.Model
     , isSuccess : Bool
@@ -68,7 +70,7 @@ init =
     }
 
 
-view : pMsg -> (Msg -> pMsg) -> Model -> Html pMsg
+view : parentMsg -> (Msg -> parentMsg) -> Model -> Html parentMsg
 view backMsg convertMsg model =
     Container.view
         [ Container.vertical
@@ -117,14 +119,30 @@ view backMsg convertMsg model =
                     Container.view
                         [ Container.vertical
                         , Container.pad_4
-                        , Container.gap_3
+                        , Container.gap_4
                         , Container.card
                         , Container.background Theme.neutralBackground
                         , Container.fill
                         ]
-                        ([ Button.view [ Button.primary ] { label = [ text "Pick File" ], onClick = SelectFile } ]
-                            ++ List.map (text >> List.singleton >> p []) model.files
-                        )
+                        [ Container.view
+                            [ Container.vertical
+                            , Container.pad_2
+                            , Container.gap_1
+                            , Container.card
+                            , Container.background Theme.baseBackground
+                            , Container.fill
+                            , Container.styleAttrs [ ( "height", "0px" ), ( "overflow-y", "auto" ) ]
+                            ]
+                            (model.files |> List.map viewLoadedFile |> List.intersperse (Divider.view [] []))
+                        , Container.view
+                            [ Container.horizontal
+                            , Container.gap_3
+                            , Container.fillSpace
+                            ]
+                            [ Button.view [ Button.primary ] { label = [ text "Pick File" ], onClick = SelectFile }
+                            , Button.view [ Button.danger ] { label = [ text "Delete" ], onClick = DeleteSelectedFiles }
+                            ]
+                        ]
         , Html.map convertMsg <|
             Container.view
                 [ Container.horizontal
@@ -153,9 +171,8 @@ view backMsg convertMsg model =
                     text ""
                 , Html.map DestinationMsg (Peer.view model.destination)
 
-                -- change this to an actual view later
-                , Container.view [ Container.styleAttrs [ ( "margin-left", "auto" ) ] ]
-                    [ Button.view [ Button.primary ] { label = [ text "Send" ], onClick = Send } ]
+                , Container.view [ Container.fill ] []
+                , Button.view [ Button.primary ] { label = [ text "Send" ], onClick = Send }
                 ]
         ]
 
@@ -164,6 +181,8 @@ type Msg
     = ModeChanged Mode
     | TextChanged String
     | PasswordChanged String
+    | FileToggled String Bool
+    | DeleteSelectedFiles
     | DestinationMsg Peer.Msg
     | Send
     | ReceiveResponse (Common.Message Common.Response)
@@ -182,6 +201,18 @@ update msg model =
 
         PasswordChanged password ->
             ( { model | password = password }, Cmd.none )
+
+        FileToggled fileName selected ->
+            ( { model | files = model.files |> List.map (\file -> if file.name == fileName then { file | selected = selected } else file) }, Cmd.none )
+
+        DeleteSelectedFiles ->
+            ( { model | files = model.files |> List.filter (not << .selected) }
+            , Common.sendCall <|
+                Common.encodeCall
+                    { returnPath = [ "Send" ]
+                    , message = Common.DropFiles { names = (model.files |> List.filter .selected |> List.map .name) }
+                    }
+            )
 
         DestinationMsg subMsg ->
             let
@@ -231,19 +262,57 @@ update msg model =
                 ( _, Common.TextSent (Ok _) ) ->
                     ( { model | isSuccess = True }, Cmd.none )
 
+                ( _, Common.FileSelected (Ok name) ) ->
+                    ( { model | files = model.files ++ [ initLoadedFile name ] }, Cmd.none )
+
                 _ ->
                     ( model, Cmd.none )
 
         SelectFile ->
-            ( model, Common.callOpenFileDialog False )
+            ( model
+            , Common.sendCall <|
+                Common.encodeCall
+                    { returnPath = [ "Send" ]
+                    , message = Common.ChooseFile
+                    }
+            )
 
         PathAdded path ->
-            ( { model | files = model.files ++ Maybe.Extra.toList path }, Cmd.none )
+            ( { model | files = model.files ++ (Maybe.Extra.toList path |> List.map initLoadedFile) }, Cmd.none )
 
-        -- _ ->
-        --     ( model, Cmd.none )
+
+
+-- _ ->
+--     ( model, Cmd.none )
 
 
 subscriptions : Model -> Sub Msg
 subscriptions model =
     Sub.none
+
+
+-- File list items
+
+type alias LoadedFile =
+    { name : String
+    , selected : Bool
+    }
+
+
+initLoadedFile : String -> LoadedFile
+initLoadedFile name =
+    { name = name
+    , selected = False
+    }
+
+
+viewLoadedFile : LoadedFile -> Html Msg
+viewLoadedFile file =
+    DataRow.viewNext
+        [ DataRow.onClick <| FileToggled file.name <| not file.selected
+        , DataRow.padding 0
+        ]
+        { left = [ InputCheckbox.view [] { value = file.selected, onInput = FileToggled file.name } ]
+        , main = [ text file.name ]
+        , right = []
+        }

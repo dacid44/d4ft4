@@ -135,7 +135,7 @@ view model =
                 , Container.gap_3
                 ]
                 [ Heading.view [] [ text "Peer" ]
-                , Container.view [ Container.styleAttrs [ ( "align-items", "start" ) ] ]
+                , Container.view [ Container.alignLeft ]
                     [ ButtonGroup.view
                         [ ButtonGroup.small
                         , ButtonGroup.highlighted (\mode -> mode == model.mode)

@@ -62,12 +62,15 @@ type Call
     = Setup { connId : Int, address : String, isServer : Bool, mode : TransferMode, password : String }
     | SendText { connId : Int, text : String }
     | ReceiveText { connId : Int }
+    | ChooseFile
+    | DropFiles { names : List String }
 
 
 type Response
     = SetupComplete (Result String ())
     | TextSent (Result String ())
     | TextReceived (Result String String)
+    | FileSelected (Result String String)
 
 
 encodeCall : Message Call -> Value
@@ -115,6 +118,16 @@ encodeCall call =
                           , Encode.object [ ( "conn-id", Encode.int connId ) ]
                           )
                         ]
+
+                    ChooseFile ->
+                        [ ( "name", Encode.string "ChooseFile" ) ]
+
+                    DropFiles { names } ->
+                        [ ( "name", Encode.string "DropFiles" )
+                        , ( "args"
+                          , Encode.object [ ( "names", Encode.list Encode.string names ) ]
+                          )
+                        ]
                 )
           )
         ]
@@ -137,6 +150,9 @@ decodeResponse =
 
                             "TextReceived" ->
                                 Decode.map TextReceived <| decodeResult Decode.string Decode.string
+
+                            "FileSelected" ->
+                                Decode.map FileSelected <| decodeResult Decode.string Decode.string
 
                             _ ->
                                 Decode.fail "Unknown message name"

@@ -155,7 +155,7 @@ impl Connection {
     pub async fn send_file_path(&mut self, path: impl AsRef<Path>) -> D4FTResult<()> {
         self.check_mode(TransferMode::SendFile)?;
 
-        let file_obj = fs::File::open(path)
+        let file_obj = fs::File::open(&path)
             .await
             .map_err(|source| D4FTError::FileOpenError { source })?;
 
