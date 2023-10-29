@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
@@ -6,7 +6,8 @@ use serde::{Deserialize, Serialize};
 pub(crate) struct Handshake {
     pub(crate) version: String,
     pub(crate) encryption: EncryptionVars,
-    pub(crate) mode: TransferMode,
+    pub(crate) is_sender: bool,
+    // pub(crate) mode: TransferMode,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -50,7 +51,14 @@ pub(crate) enum Response {
 }
 
 #[derive(Serialize, Deserialize, Debug)]
-pub(crate) struct SendText(pub(crate) String);
+#[serde(tag = "mode", rename_all = "lowercase")]
+pub(crate) enum InitTransfer {
+    Text(String),
+    Files(FileList),
+}
+
+// #[derive(Serialize, Deserialize, Debug)]
+// pub(crate) struct SendText(pub(crate) String);
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "kebab-case")]
@@ -59,33 +67,50 @@ pub struct FileList {
     pub(crate) total_size: u64,
 }
 
+impl FileList {
+    pub fn from_items(items: Vec<FileListItem>) -> Self {
+        let total_size = items.iter().filter_map(FileListItem::size).sum();
+        Self {
+            list: items,
+            total_size,
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 #[serde(tag = "type", rename_all = "lowercase")]
 pub enum FileListItem {
-    File {
-        path: PathBuf,
-        size: u64,
-    },
+    File { path: PathBuf, size: u64 },
     Directory(PathBuf),
 }
 
 impl FileListItem {
-    pub fn path(&self) -> &PathBuf {
+    pub fn path(&self) -> &Path {
         match self {
             Self::File { path, .. } => path,
             Self::Directory(path) => path,
         }
     }
+
+    pub fn size(&self) -> Option<u64> {
+        match self {
+            Self::File { size, .. } => Some(*size),
+            Self::Directory(_) => None,
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
+#[serde(tag = "response")]
+pub(crate) enum FileListResponse {
+    Accept(Vec<PathBuf>),
+    Reject { reason: String },
 }
 
 // hashing should be optional
 #[derive(Serialize, Deserialize, Debug)]
-#[serde(rename_all = "lowercase")]
-pub(crate) enum SendFile {
-    File {
-        path: PathBuf,
-        size: u64,
-        hash: Option<String>,
-    },
-    Directory(PathBuf),
+pub(crate) struct FileHeader {
+    pub(crate) path: PathBuf,
+    pub(crate) size: u64,
+    pub(crate) hash: Option<String>,
 }

@@ -1,13 +1,13 @@
-use std::borrow::Cow;
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
-use std::{error::Error, fmt::Debug, io::Read};
+use std::{fmt::Debug, io::Read};
 
 use d4ft4::D4FTResult;
 use tauri::async_runtime::{channel, Mutex, Receiver, Sender};
 use tauri::Manager;
 use tauri_plugin_dialog::{DialogExt, FileResponse};
 use tokio::fs::File;
+use tokio_stream::StreamExt;
 
 #[cfg(target_os = "android")]
 mod android;
@@ -31,7 +31,8 @@ pub fn run() {
 }
 
 struct State {
-    connections: [Mutex<Option<d4ft4::Connection>>; 2],
+    sender: Mutex<Option<d4ft4::Sender>>,
+    receiver: Mutex<Option<d4ft4::Receiver>>,
     response_tx: Sender<Message<Response>>,
     response_rx: Mutex<Receiver<Message<Response>>>,
     files: Mutex<Vec<LoadedFile>>,
@@ -41,7 +42,8 @@ impl State {
     fn new() -> Self {
         let (tx, rx) = channel(16);
         Self {
-            connections: [Mutex::new(None), Mutex::new(None)],
+            sender: Mutex::new(None),
+            receiver: Mutex::new(None),
             response_tx: tx,
             response_rx: Mutex::new(rx),
             files: Mutex::new(Vec::new()),
@@ -61,6 +63,19 @@ enum FileHandle {
     File(File),
 }
 
+impl FileHandle {
+    async fn open(&mut self) -> std::io::Result<&mut File> {
+        loop {
+            match self {
+                Self::Path(path) => {
+                    *self = Self::File(File::open(path).await?);
+                }
+                Self::File(f) => break Ok(f),
+            }
+        }
+    }
+}
+
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "kebab-case")]
 struct Message<T> {
@@ -71,29 +86,45 @@ struct Message<T> {
 #[derive(Debug, serde::Deserialize)]
 #[serde(tag = "name", content = "args")]
 enum Call {
-    #[serde(rename_all = "kebab-case")]
-    Setup {
-        conn_id: usize,
-        address: String,
-        is_server: bool,
-        mode: d4ft4::TransferMode,
-        password: String,
-    },
+    // #[serde(rename_all = "kebab-case")]
+    // Setup {
+    //     conn_id: usize,
+    //     address: String,
+    //     is_server: bool,
+    //     mode: d4ft4::TransferMode,
+    //     password: String,
+    // },
+    SetupSender(SetupParams),
+    SetupReceiver(SetupParams),
     #[serde(rename_all = "kebab-case")]
     SendText {
-        conn_id: usize,
         text: String,
     },
     #[serde(rename_all = "kebab-case")]
-    ReceiveText {
-        conn_id: usize,
-    },
+    ReceiveText,
     ChooseFile,
     DropFiles {
         names: Vec<String>,
     },
+    SendFiles {
+        names: Vec<String>,
+    },
+    ReceiveFileList,
+    #[serde(rename_all = "kebab-case")]
+    ReceiveFiles {
+        allowlist: Vec<String>,
+        out_dir: Option<String>,
+    },
     // SendFile { conn_id: usize, path: String },
     // ReceiveFile { conn_id: usize, path: String },
+}
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "kebab-case")]
+struct SetupParams {
+    address: String,
+    is_server: bool,
+    password: String,
 }
 
 #[derive(Debug, serde::Serialize)]
@@ -103,6 +134,9 @@ enum Response {
     TextSent(Result<(), String>),
     TextReceived(Result<String, String>),
     FileSelected(Result<String, String>),
+    FilesSent(Result<(), String>),
+    ReceivedFileList(Result<d4ft4::FileList, String>),
+    ReceivedFiles(Result<(), String>),
 }
 
 #[tauri::command]
@@ -113,28 +147,34 @@ async fn handle_message(
 ) -> Result<(), String> {
     dbg!(&call);
     let message: Option<Response> = match call.message {
-        Call::Setup {
-            conn_id,
+        Call::SetupSender(SetupParams {
             address,
             is_server,
-            mode,
             password,
-        } => Some({
-            let connection = if is_server {
-                d4ft4::Connection::listen(address, mode, password).await
-            } else {
-                d4ft4::Connection::connect(address, mode, password).await
-            };
-            Response::SetupComplete(match connection {
-                Ok(connection) => {
-                    *state.connections[conn_id].lock().await = Some(connection);
+        }) => Some(Response::SetupComplete(
+            match d4ft4::init_send(is_server, address, password).await {
+                Ok(sender) => {
+                    *state.sender.lock().await = Some(sender);
                     Ok(())
                 }
-                Err(err) => Err(format!("{:?}", err)),
-            })
-        }),
-        Call::SendText { conn_id, text } => Some(Response::TextSent(
-            if let Some(connection) = state.connections[conn_id].lock().await.as_mut() {
+                Err(err) => Err(format!("{err:?}")),
+            },
+        )),
+        Call::SetupReceiver(SetupParams {
+            address,
+            is_server,
+            password,
+        }) => Some(Response::SetupComplete(
+            match d4ft4::init_receive(is_server, address, password).await {
+                Ok(receiver) => {
+                    *state.receiver.lock().await = Some(receiver);
+                    Ok(())
+                }
+                Err(err) => Err(format!("{err:?}")),
+            },
+        )),
+        Call::SendText { text } => Some(Response::TextSent(
+            if let Some(connection) = state.sender.lock().await.as_mut() {
                 connection
                     .send_text(text)
                     .await
@@ -143,8 +183,8 @@ async fn handle_message(
                 Err("connection not initialized".to_string())
             },
         )),
-        Call::ReceiveText { conn_id } => Some(Response::TextReceived(
-            if let Some(connection) = state.connections[conn_id].lock().await.as_mut() {
+        Call::ReceiveText => Some(Response::TextReceived(
+            if let Some(connection) = state.receiver.lock().await.as_mut() {
                 connection
                     .receive_text()
                     .await
@@ -259,6 +299,47 @@ async fn handle_message(
             dbg!(&state.files.lock().await[..]);
             None
         }
+        Call::SendFiles { names } => Some(Response::FilesSent({
+            if let Ok(files) = tokio_stream::iter(state.files.lock().await.iter_mut())
+                .filter(|f| names.contains(&f.name))
+                .then(|f| async { Ok((PathBuf::from(&f.name), f.handle.open().await?)) })
+                .collect::<std::io::Result<Vec<_>>>()
+                .await
+            {
+                match state.sender.lock().await.as_mut() {
+                    Some(sender) => sender
+                        .send_flat_files(files)
+                        .await
+                        .map_err(|err| format!("{err:?}")),
+                    None => Err("connection not initialized".to_string()),
+                }
+            } else {
+                // TODO: maybe be able to specify which file
+                Err("could not open file".to_string())
+            }
+        })),
+        Call::ReceiveFileList => Some(Response::ReceivedFileList({
+            match state.receiver.lock().await.as_mut() {
+                Some(receiver) => receiver
+                    .receive_file_list()
+                    .await
+                    .map_err(|err| format!("{err:?}")),
+                None => Err("connection not initialized".to_string()),
+            }
+        })),
+        Call::ReceiveFiles { allowlist, out_dir } => Some(Response::ReceivedFiles({
+            let allowlist = allowlist
+                .iter()
+                .map(|name| PathBuf::from(name))
+                .collect::<Vec<_>>();
+            match state.receiver.lock().await.as_mut() {
+                Some(receiver) => receiver
+                    .receive_flat_files_fs(allowlist, out_dir.as_ref().map(AsRef::as_ref))
+                    .await
+                    .map_err(|err| format!("{err:?}")),
+                None => Err("connection not initialized".to_string()),
+            }
+        })),
     };
 
     if let Some(response) = message {
@@ -308,53 +389,6 @@ fn dedup_filename(filename: &str, files: &[LoadedFile]) -> Option<String> {
     }
     // If this is reached something has gone very wrong (reached usize max value)
     None
-}
-
-// #[tauri::command]
-// async fn send_file(
-//     connections: tauri::State<'_, State>,
-//     conn_id: usize,
-//     path: PathBuf,
-// ) -> Result<(usize, Option<String>), ()> {
-//     println!("send_file conn_id={conn_id}");
-//     match &mut *connections.0[conn_id].lock().await {
-//         Some(connection) => handle_error(connection.send_file(path).await.map(|_| None), conn_id),
-//         None => Ok((
-//             conn_id,
-//             Some("Error: connection not initialized".to_string()),
-//         )),
-//     }
-// }
-
-// #[tauri::command]
-// async fn receive_file(
-//     connections: tauri::State<'_, State>,
-//     conn_id: usize,
-//     path: PathBuf,
-// ) -> Result<(usize, Option<String>), ()> {
-//     println!("send_file conn_id={conn_id}");
-//     match &mut *connections.0[conn_id].lock().await {
-//         Some(connection) => {
-//             handle_error(connection.receive_file(path).await.map(|_| None), conn_id)
-//         }
-//         None => Ok((
-//             conn_id,
-//             Some("Error: connection not initialized".to_string()),
-//         )),
-//     }
-// }
-
-fn handle_error(
-    result: d4ft4::D4FTResult<Option<String>>,
-    conn_id: usize,
-) -> Result<(usize, Option<String>), ()> {
-    match result {
-        Ok(text) => Ok((conn_id, text)),
-        Err(error) => Ok((
-            conn_id,
-            Some(format!("Error: {}, source: {:?}", error, error.source())),
-        )),
-    }
 }
 
 #[cfg(not(target_os = "android"))]
@@ -420,7 +454,7 @@ async fn open_file_dialog(
                         f.metadata().map(|m| m.len())
                     ),
                     Err(err) => format!("error: {err:?}"),
-                }d
+                }
             )
         })
     })

@@ -7,6 +7,9 @@ pub enum D4FTError {
     #[error("rejected handshake: {reason}")]
     RejectedHandshake { reason: String },
 
+    #[error("rejected transfer: {reason}")]
+    RejectedTransfer { reason: String },
+
     #[error("incorrect transfer mode")]
     IncorrectTransferMode {
         required: TransferMode,

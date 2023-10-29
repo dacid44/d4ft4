@@ -16,6 +16,14 @@ How multiple file transfer will work:
 - send accept/reject (at least for now, accept/reject is all or nothing)
 - transfer, etc...
 
+
+- Sender sends the file list
+- Receiver sends back the list of accepted files
+- Sender sends only those files
+- Directories only exist in the file list
+
+
+
 Brainstorming for UI:
 - Top section divided up into two parts, for text and files. Once you start a transfer, one will expand to take up the whole space.
 - Old version did something like this, had sliding panes to go between them
@@ -27,7 +35,7 @@ Brainstorming for UI:
   - have an option to choose between receiving text, files, or autodetect
   - also have a way to choose between connecting and listening
   - this component could be common with the sending page but maybe not
-  - airdrop-like screen, where you view an incoming message, and if file, select where to save it
+  - airdrop-like screen, where you view an incoming message, and if it's a file, select where to save it
 - Have a way to view history
   - copy past text received
   - open explorer to past files received
