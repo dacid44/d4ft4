@@ -398,9 +398,9 @@ impl Ord for FileListItem {
 
         if self_path == other_path {
             return match (self, other) {
-                (Self::Directory(_), Self::File { .. }) => Ordering::Less,
-                (Self::File { .. }, Self::Directory(_)) => Ordering::Greater,
-                (Self::Directory(_), Self::Directory(_)) => Ordering::Equal,
+                (Self::Directory { .. }, Self::File { .. }) => Ordering::Less,
+                (Self::File { .. }, Self::Directory { .. }) => Ordering::Greater,
+                (Self::Directory { .. }, Self::Directory { .. }) => Ordering::Equal,
                 (
                     Self::File {
                         size: self_size, ..

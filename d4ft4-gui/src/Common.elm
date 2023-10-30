@@ -3,6 +3,7 @@ port module Common exposing (..)
 import Home exposing (Msg)
 import Json.Decode as Decode exposing (Decoder, decodeValue, field, map, oneOf, string)
 import Json.Encode as Encode exposing (Value)
+import Material.Icons exposing (password)
 
 
 decodeResult : Decoder error -> Decoder value -> Decoder (Result error value)
@@ -58,12 +59,25 @@ type alias Message msg =
     }
 
 
-type Call
-    = Setup { connId : Int, address : String, isServer : Bool, mode : TransferMode, password : String }
-    | SendText { connId : Int, text : String }
-    | ReceiveText { connId : Int }
+type
+    Call
+    -- = Setup { connId : Int, address : String, isServer : Bool, mode : TransferMode, password : String }
+    = SetupSender SetupParams
+    | SetupReceiver SetupParams
+    | SendText { text : String }
+    | ReceiveText
     | ChooseFile
     | DropFiles { names : List String }
+    | SendFiles { names : List String }
+    | ReceiveFileList
+    | ReceiveFiles { allowlist : List String, outDir : Maybe String }
+
+
+type alias SetupParams =
+    { address : String
+    , isServer : Bool
+    , password : String
+    }
 
 
 type Response
@@ -71,6 +85,34 @@ type Response
     | TextSent (Result String ())
     | TextReceived (Result String String)
     | FileSelected (Result String String)
+    | FilesSent (Result String ())
+    | ReceivedFileList (Result String FileList)
+    | ReceivedFiles (Result String ())
+
+
+type alias FileList =
+    { list : List FileListItem
+    , totalSize : Int
+    }
+
+
+type FileListItem
+    = File { path : String, size : Int }
+    | Directory { path : String }
+
+
+filesInList : FileList -> List { path : String, size : Int }
+filesInList =
+    .list
+        >> List.filterMap
+            (\item ->
+                case item of
+                    File file ->
+                        Just file
+
+                    Directory _ ->
+                        Nothing
+            )
 
 
 encodeCall : Message Call -> Value
@@ -80,44 +122,50 @@ encodeCall call =
         , ( "message"
           , Encode.object
                 (case call.message of
-                    Setup { connId, address, isServer, mode, password } ->
-                        [ ( "name", Encode.string "Setup" )
+                    -- Setup { connId, address, isServer, mode, password } ->
+                    --     [ ( "name", Encode.string "Setup" )
+                    --     , ( "args"
+                    --       , Encode.object
+                    --             [ ( "conn-id", Encode.int connId )
+                    --             , ( "address", Encode.string address )
+                    --             , ( "is-server", Encode.bool isServer )
+                    --             , ( "mode"
+                    --               , Encode.string
+                    --                     (case mode of
+                    --                         SendTextMode ->
+                    --                             "send-text"
+                    --
+                    --                         ReceiveTextMode ->
+                    --                             "receive-text"
+                    --                     )
+                    --               )
+                    --             , ( "password", Encode.string password )
+                    --             ]
+                    --       )
+                    --     ]
+                    SetupSender setupParams ->
+                        [ ( "name", Encode.string "SetupSender" )
                         , ( "args"
-                          , Encode.object
-                                [ ( "conn-id", Encode.int connId )
-                                , ( "address", Encode.string address )
-                                , ( "is-server", Encode.bool isServer )
-                                , ( "mode"
-                                  , Encode.string
-                                        (case mode of
-                                            SendTextMode ->
-                                                "send-text"
-
-                                            ReceiveTextMode ->
-                                                "receive-text"
-                                        )
-                                  )
-                                , ( "password", Encode.string password )
-                                ]
+                          , encodeSetupParams setupParams
                           )
                         ]
 
-                    SendText { connId, text } ->
+                    SetupReceiver setupParams ->
+                        [ ( "name", Encode.string "SetupReceiver" )
+                        , ( "args"
+                          , encodeSetupParams setupParams
+                          )
+                        ]
+
+                    SendText { text } ->
                         [ ( "name", Encode.string "SendText" )
                         , ( "args"
-                          , Encode.object
-                                [ ( "conn-id", Encode.int connId )
-                                , ( "text", Encode.string text )
-                                ]
+                          , Encode.object [ ( "text", Encode.string text ) ]
                           )
                         ]
 
-                    ReceiveText { connId } ->
-                        [ ( "name", Encode.string "ReceiveText" )
-                        , ( "args"
-                          , Encode.object [ ( "conn-id", Encode.int connId ) ]
-                          )
-                        ]
+                    ReceiveText ->
+                        [ ( "name", Encode.string "ReceiveText" ) ]
 
                     ChooseFile ->
                         [ ( "name", Encode.string "ChooseFile" ) ]
@@ -128,8 +176,37 @@ encodeCall call =
                           , Encode.object [ ( "names", Encode.list Encode.string names ) ]
                           )
                         ]
+
+                    SendFiles { names } ->
+                        [ ( "name", Encode.string "SendFiles" )
+                        , ( "args"
+                          , Encode.object [ ( "names", Encode.list Encode.string names ) ]
+                          )
+                        ]
+
+                    ReceiveFileList ->
+                        [ ( "name", Encode.string "ReceiveFileList" ) ]
+
+                    ReceiveFiles { allowlist, outDir } ->
+                        [ ( "name", Encode.string "ReceiveFiles" )
+                        , ( "args"
+                          , Encode.object
+                                [ ( "allowlist", Encode.list Encode.string allowlist )
+                                , ( "out-dir", outDir |> Maybe.map Encode.string |> Maybe.withDefault Encode.null )
+                                ]
+                          )
+                        ]
                 )
           )
+        ]
+
+
+encodeSetupParams : SetupParams -> Value
+encodeSetupParams { address, isServer, password } =
+    Encode.object
+        [ ( "address", Encode.string address )
+        , ( "is-server", Encode.bool isServer )
+        , ( "password", Encode.string password )
         ]
 
 
@@ -154,8 +231,43 @@ decodeResponse =
                             "FileSelected" ->
                                 Decode.map FileSelected <| decodeResult Decode.string Decode.string
 
+                            "FilesSent" ->
+                                Decode.map FilesSent <| decodeResult Decode.string <| Decode.succeed ()
+
+                            "ReceivedFileList" ->
+                                Decode.map ReceivedFileList <| decodeResult Decode.string <| decodeFileList
+
+                            "ReceivedFiles" ->
+                                Decode.map ReceivedFiles <| decodeResult Decode.string <| Decode.succeed ()
+
                             _ ->
                                 Decode.fail "Unknown message name"
                     )
             )
         )
+
+
+decodeFileList : Decoder FileList
+decodeFileList =
+    Decode.map2 FileList
+        (Decode.field "list" <| Decode.list decodeFileListItem)
+        (Decode.field "total-size" Decode.int)
+
+
+decodeFileListItem : Decoder FileListItem
+decodeFileListItem =
+    Decode.field "type" Decode.string
+        |> Decode.andThen
+            (\itemType ->
+                case itemType of
+                    "file" ->
+                        Decode.map2 (\path size -> File { path = path, size = size })
+                            (Decode.field "path" Decode.string)
+                            (Decode.field "size" Decode.int)
+
+                    "directory" ->
+                        Decode.map (\path -> Directory { path = path }) (Decode.field "path" Decode.string)
+
+                    _ ->
+                        Decode.fail "Unknown file list item type"
+            )

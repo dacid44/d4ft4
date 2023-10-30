@@ -27,7 +27,7 @@ impl Connection for Sender {
 impl Sender {
     pub async fn send_text(&mut self, text: String) -> D4FTResult<()> {
         self.encryptor
-            .encode(&protocol::InitTransfer::Text(text), &mut self.socket)
+            .encode(&protocol::InitTransfer::Text { text }, &mut self.socket)
             .await?;
 
         self.accept_response().await
@@ -85,7 +85,7 @@ impl Sender {
             .await?;
 
         match response {
-            protocol::FileListResponse::Accept(allowlist) => Ok(allowlist),
+            protocol::FileListResponse::Accept { allowlist } => Ok(allowlist),
             protocol::FileListResponse::Reject { reason } => {
                 Err(D4FTError::RejectedTransfer { reason })
             }

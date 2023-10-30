@@ -30,7 +30,7 @@ impl Receiver {
             .await?;
 
         match transfer {
-            protocol::InitTransfer::Text(text) => {
+            protocol::InitTransfer::Text { text } => {
                 self.encryptor
                     .encode(&protocol::Response::Accept, &mut self.socket)
                     .await?;
@@ -58,7 +58,7 @@ impl Receiver {
             .await?;
 
         match transfer {
-            protocol::InitTransfer::Text(_) => {
+            protocol::InitTransfer::Text { .. } => {
                 let reason = "got text, wanted files".to_string();
                 self.encryptor
                     .encode(
@@ -79,11 +79,14 @@ impl Receiver {
         mut allowlist: Vec<PathBuf>,
         out_dir: Option<&Path>,
     ) -> D4FTResult<()> {
+        println!("receive_files start");
         self.accept_files(allowlist.clone()).await?;
 
         allowlist.sort();
 
         let out_dir = out_dir.unwrap_or(".".as_ref());
+
+        println!("receive_files setup done");
 
         while !allowlist.is_empty() {
             let file_header = self
@@ -91,7 +94,10 @@ impl Receiver {
                 .decode::<protocol::FileHeader, _>(&mut self.socket)
                 .await?;
 
+            println!("got a file header: {:?}", &file_header);
+
             if allowlist.contains(&file_header.path) {
+                println!("receiving file");
                 let handle =
                     File::create(out_dir.join(file_header.path.file_name().ok_or_else(|| {
                         D4FTError::CannotReadPath {
@@ -102,6 +108,7 @@ impl Receiver {
                     .map_err(|source| D4FTError::FileWriteError { source })?;
                 self.decryptor.decode_file(handle, &mut self.socket).await?;
             } else {
+                println!("ignoring file");
                 self.decryptor
                     .decode_file(tokio::io::sink(), &mut self.socket)
                     .await?;
@@ -114,7 +121,7 @@ impl Receiver {
     async fn accept_files(&mut self, allowlist: Vec<PathBuf>) -> D4FTResult<()> {
         self.encryptor
             .encode(
-                &protocol::FileListResponse::Accept(allowlist),
+                &protocol::FileListResponse::Accept { allowlist },
                 &mut self.socket,
             )
             .await

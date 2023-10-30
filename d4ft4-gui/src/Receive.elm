@@ -1,8 +1,9 @@
 module Receive exposing (Model, Msg(..), init, subscriptions, update, view)
 
-import Common
+import Common exposing (Call(..), Response(..))
+import Filesize
 import Html exposing (..)
-import Html.Attributes exposing (style)
+import Html.Attributes exposing (name, selected, style)
 import Material.Icons as Filled
 import Material.Icons.Types exposing (Coloring(..))
 import Peer
@@ -10,6 +11,9 @@ import Theme
 import W.Button as Button
 import W.ButtonGroup as ButtonGroup
 import W.Container as Container
+import W.DataRow as DataRow
+import W.Divider as Divider
+import W.InputCheckbox as InputCheckbox
 import W.InputText as InputText
 import W.InputTextArea as InputTextArea
 import W.Text as Text
@@ -18,7 +22,7 @@ import W.Text as Text
 type Mode
     = Autodetect
     | Text
-    | File
+    | Files
 
 
 modeLabel : Mode -> List (Html msg)
@@ -30,7 +34,7 @@ modeLabel mode =
         Text ->
             "Receive Text"
 
-        File ->
+        Files ->
             "Receive Files"
     )
         |> text
@@ -41,13 +45,13 @@ modeString : Mode -> String
 modeString mode =
     case mode of
         Autodetect ->
-            "receive-autodetect"
+            "Autodetect"
 
         Text ->
-            "receive-text"
+            "Text"
 
-        File ->
-            "receive-file"
+        Files ->
+            "Files"
 
 
 type alias Model =
@@ -56,6 +60,9 @@ type alias Model =
     , source : Peer.Model
     , text : String
     , password : String
+    , files : List ReceivedFile
+    , totalSize : Maybe Int
+    , outDir : String
     , isConnected : Bool
     , messages : List String
     }
@@ -68,6 +75,9 @@ init platform =
     , source = Peer.init Peer.Listen
     , text = ""
     , password = ""
+    , files = []
+    , totalSize = Nothing
+    , outDir = ""
     , isConnected = False
     , messages = []
     }
@@ -92,10 +102,10 @@ view backMsg convertMsg model =
                 }
             , Html.map convertMsg <|
                 ButtonGroup.view
-                    [ ButtonGroup.disabled (\mode -> mode == Autodetect)
+                    [ ButtonGroup.disabled (\mode -> mode == Autodetect || (mode == Files && model.platform == "android"))
                     , ButtonGroup.highlighted (\mode -> mode == model.mode)
                     ]
-                    { items = [ Autodetect, Text, File ]
+                    { items = [ Autodetect, Text, Files ]
                     , toLabel = modeLabel
                     , onClick = ModeChanged
                     }
@@ -133,7 +143,7 @@ view backMsg convertMsg model =
                 ([ Button.view [ Button.primary ] { label = [ text "Connect" ], onClick = Connect } ]
                     ++ (if model.isConnected then
                             [ Text.view [ Text.color Theme.primaryForeground ] [ text "Connected!" ]
-                            , Button.view [ Button.primary ] { label = [ text "Receive text" ], onClick = Receive }
+                            , Button.view [ Button.primary ] { label = [ text "Receive text" ], onClick = ReceiveText }
                             ]
 
                         else
@@ -141,24 +151,58 @@ view backMsg convertMsg model =
                        )
                 )
         , Html.map convertMsg <|
-            Container.view
-                [ Container.vertical
-                , Container.pad_4
-                , Container.gap_3
-                , Container.card
-                , Container.background Theme.neutralBackground
-                , Container.fill
-                ]
-                ([ Container.view
-                    [ Container.card
-                    , Container.background Theme.baseBackground
-                    , Container.fill
-                    ]
-                    [ InputTextArea.view [ InputTextArea.htmlAttrs [ style "flex-grow" "1" ] ] { value = model.text, onInput = TextChanged }
-                    ]
-                 ]
-                    ++ (model.messages |> List.map (text >> List.singleton >> pre []))
-                )
+            case model.mode of
+                Autodetect ->
+                    text "autodetect"
+
+                Text ->
+                    Container.view
+                        [ Container.vertical
+                        , Container.pad_4
+                        , Container.gap_3
+                        , Container.card
+                        , Container.background Theme.neutralBackground
+                        , Container.fill
+                        ]
+                        ([ Container.view
+                            [ Container.card
+                            , Container.background Theme.baseBackground
+                            , Container.fill
+                            ]
+                            [ InputTextArea.view [ InputTextArea.htmlAttrs [ style "flex-grow" "1" ] ] { value = model.text, onInput = TextChanged }
+                            ]
+                         ]
+                            ++ (model.messages |> List.map (text >> List.singleton >> pre []))
+                        )
+
+                Files ->
+                    Container.view
+                        [ Container.vertical
+                        , Container.pad_4
+                        , Container.gap_4
+                        , Container.card
+                        , Container.background Theme.neutralBackground
+                        , Container.fill
+                        ]
+                        [ Container.view
+                            [ Container.vertical
+                            , Container.pad_2
+                            , Container.gap_1
+                            , Container.card
+                            , Container.background Theme.baseBackground
+                            , Container.fill
+                            , Container.styleAttrs [ ( "height", "0px" ), ( "overflow-y", "auto" ) ]
+                            ]
+                            (model.files |> List.map viewReceivedFile |> List.intersperse (Divider.view [] []))
+                        , Container.view
+                            [ Container.horizontal
+                            , Container.gap_3
+                            , Container.fillSpace
+                            ]
+                            [ InputText.view [] { onInput = OutDirChanged, value = model.outDir }
+                            , Button.view [ Button.primary ] { label = [ text "Receive selected files" ], onClick = ReceiveFiles }
+                            ]
+                        ]
         ]
 
 
@@ -166,11 +210,12 @@ type Msg
     = ModeChanged Mode
     | TextChanged String
     | PasswordChanged String
+    | FileToggled String Bool
+    | OutDirChanged String
     | SourceMsg Peer.Msg
     | Connect
-    | Receive
-    | ReturnSetup ( Int, Maybe String )
-    | ReturnReceiveText ( Int, Maybe (Result String String) )
+    | ReceiveText
+    | ReceiveFiles
     | ReceiveResponse (Common.Message Common.Response)
 
 
@@ -186,6 +231,25 @@ update msg model =
         PasswordChanged password ->
             ( { model | password = password }, Cmd.none )
 
+        FileToggled fileName selected ->
+            ( { model
+                | files =
+                    model.files
+                        |> List.map
+                            (\file ->
+                                if file.name == fileName then
+                                    { file | selected = selected }
+
+                                else
+                                    file
+                            )
+              }
+            , Cmd.none
+            )
+
+        OutDirChanged outDir ->
+            ( { model | outDir = outDir }, Cmd.none )
+
         SourceMsg subMsg ->
             let
                 ( subModel, subCmd ) =
@@ -199,13 +263,11 @@ update msg model =
                 Just address ->
                     Common.sendCall <|
                         Common.encodeCall
-                            { returnPath = [ "Receive", "Text" ]
+                            { returnPath = [ "Receive", modeString model.mode ]
                             , message =
-                                Common.Setup
-                                    { connId = 1
-                                    , address = address
+                                Common.SetupReceiver
+                                    { address = address
                                     , isServer = model.source.mode == Peer.Listen
-                                    , mode = Common.ReceiveTextMode
                                     , password = model.password
                                     }
                             }
@@ -214,12 +276,34 @@ update msg model =
                     Cmd.none
             )
 
-        Receive ->
+        -- Maybe not needed anymore, unless maybe in autodetect?
+        ReceiveText ->
             ( model
             , Common.sendCall <|
                 Common.encodeCall
                     { returnPath = [ "Receive" ]
-                    , message = Common.ReceiveText { connId = 1 }
+                    , message = Common.ReceiveText
+                    }
+            )
+
+        ReceiveFiles ->
+            ( model
+            , Common.sendCall <|
+                Common.encodeCall
+                    { returnPath = [ "Receive" ]
+                    , message =
+                        Common.ReceiveFiles
+                            { allowlist =
+                                model.files
+                                    |> List.filter .selected
+                                    |> List.map .name
+                            , outDir =
+                                if String.isEmpty model.outDir then
+                                    Nothing
+
+                                else
+                                    Just model.outDir
+                            }
                     }
             )
 
@@ -229,7 +313,16 @@ update msg model =
                     ( { model | messages = model.messages ++ [ error ] }, Cmd.none )
 
                 ( [ "Text" ], Common.SetupComplete (Ok _) ) ->
-                    ( { model | isConnected = True }, Cmd.none )
+                    ( { model | isConnected = True }, Common.sendCall <| Common.encodeCall <| { returnPath = [ "Receive" ], message = Common.ReceiveText } )
+
+                ( [ "Files" ], Common.SetupComplete (Ok _) ) ->
+                    ( { model | isConnected = True }
+                    , Common.sendCall <|
+                        Common.encodeCall
+                            { returnPath = [ "Receive" ]
+                            , message = Common.ReceiveFileList
+                            }
+                    )
 
                 ( _, Common.TextReceived (Err error) ) ->
                     ( { model | messages = model.messages ++ [ error ] }, Cmd.none )
@@ -237,13 +330,54 @@ update msg model =
                 ( _, Common.TextReceived (Ok text) ) ->
                     ( { model | text = text }, Cmd.none )
 
+                ( _, Common.ReceivedFileList (Ok fileList) ) ->
+                    ( { model
+                        | files =
+                            fileList
+                                |> Common.filesInList
+                                |> List.map (\file -> initReceivedFile file.path file.size)
+                        , totalSize = Just fileList.totalSize
+                      }
+                    , Cmd.none
+                    )
+
                 _ ->
                     ( model, Cmd.none )
 
-        _ ->
-            ( model, Cmd.none )
+
+
+-- _ ->
+--     ( model, Cmd.none )
 
 
 subscriptions : Model -> Sub Msg
 subscriptions model =
     Sub.none
+
+
+
+-- File list items
+
+
+type alias ReceivedFile =
+    { name : String
+    , size : Int
+    , selected : Bool
+    }
+
+
+initReceivedFile : String -> Int -> ReceivedFile
+initReceivedFile name size =
+    { name = name, size = size, selected = False }
+
+
+viewReceivedFile : ReceivedFile -> Html Msg
+viewReceivedFile file =
+    DataRow.viewNextExtra
+        [ DataRow.padding 0 ]
+        { left = [ InputCheckbox.view [] { value = file.selected, onInput = FileToggled file.name } ]
+        , header = []
+        , main = [ text file.name ]
+        , footer = [ text <| Filesize.format file.size ]
+        , right = []
+        }

@@ -1,8 +1,8 @@
 async function handleResponses(app) {
     while (true) {
-        app.ports.receiveResponse.send(
-            await invoke("receive_response")
-        );
+        let message = await invoke("receive_response");
+        console.log(message);
+        app.ports.receiveResponse.send(message);
     }
 }
 

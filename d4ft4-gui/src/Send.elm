@@ -11,17 +11,17 @@ import Theme
 import W.Button as Button
 import W.ButtonGroup as ButtonGroup
 import W.Container as Container
+import W.DataRow as DataRow
+import W.Divider as Divider
+import W.InputCheckbox as InputCheckbox
 import W.InputText as InputText
 import W.InputTextArea as InputTextArea
-import W.InputCheckbox as InputCheckbox
 import W.Text as Text
-import W.Divider as Divider
-import W.DataRow as DataRow
 
 
 type Mode
     = Text
-    | File
+    | Files
 
 
 modeLabel : Mode -> List (Html msg)
@@ -30,7 +30,7 @@ modeLabel mode =
         Text ->
             "Send Text"
 
-        File ->
+        Files ->
             "Send Files"
     )
         |> text
@@ -41,10 +41,10 @@ modeString : Mode -> String
 modeString mode =
     case mode of
         Text ->
-            "send-text"
+            "Text"
 
-        File ->
-            "send-file"
+        Files ->
+            "Files"
 
 
 type alias Model =
@@ -88,7 +88,7 @@ view backMsg convertMsg model =
                 }
             , Html.map convertMsg <|
                 ButtonGroup.view [ ButtonGroup.highlighted (\mode -> mode == model.mode) ]
-                    { items = [ Text, File ]
+                    { items = [ Text, Files ]
                     , toLabel = modeLabel
                     , onClick = ModeChanged
                     }
@@ -115,7 +115,7 @@ view backMsg convertMsg model =
                             ++ (model.messages |> List.map (text >> List.singleton >> pre []))
                         )
 
-                File ->
+                Files ->
                     Container.view
                         [ Container.vertical
                         , Container.pad_4
@@ -170,7 +170,6 @@ view backMsg convertMsg model =
                   else
                     text ""
                 , Html.map DestinationMsg (Peer.view model.destination)
-
                 , Container.view [ Container.fill ] []
                 , Button.view [ Button.primary ] { label = [ text "Send" ], onClick = Send }
                 ]
@@ -203,14 +202,27 @@ update msg model =
             ( { model | password = password }, Cmd.none )
 
         FileToggled fileName selected ->
-            ( { model | files = model.files |> List.map (\file -> if file.name == fileName then { file | selected = selected } else file) }, Cmd.none )
+            ( { model
+                | files =
+                    model.files
+                        |> List.map
+                            (\file ->
+                                if file.name == fileName then
+                                    { file | selected = selected }
+
+                                else
+                                    file
+                            )
+              }
+            , Cmd.none
+            )
 
         DeleteSelectedFiles ->
             ( { model | files = model.files |> List.filter (not << .selected) }
             , Common.sendCall <|
                 Common.encodeCall
                     { returnPath = [ "Send" ]
-                    , message = Common.DropFiles { names = (model.files |> List.filter .selected |> List.map .name) }
+                    , message = Common.DropFiles { names = model.files |> List.filter .selected |> List.map .name }
                     }
             )
 
@@ -227,13 +239,11 @@ update msg model =
                 Just address ->
                     Common.sendCall <|
                         Common.encodeCall
-                            { returnPath = [ "Send", "Text" ]
+                            { returnPath = [ "Send", modeString model.mode ]
                             , message =
-                                Common.Setup
-                                    { connId = 0
-                                    , address = address
+                                Common.SetupSender
+                                    { address = address
                                     , isServer = model.destination.mode == Peer.Listen
-                                    , mode = Common.SendTextMode
                                     , password = model.password
                                     }
                             }
@@ -252,7 +262,16 @@ update msg model =
                     , Common.sendCall <|
                         Common.encodeCall
                             { returnPath = [ "Send" ]
-                            , message = Common.SendText { connId = 0, text = model.text }
+                            , message = Common.SendText { text = model.text }
+                            }
+                    )
+
+                ( [ "Files" ], Common.SetupComplete (Ok _) ) ->
+                    ( model
+                    , Common.sendCall <|
+                        Common.encodeCall
+                            { returnPath = [ "Send" ]
+                            , message = Common.SendFiles { names = model.files |> List.filter .selected |> List.map .name }
                             }
                     )
 
@@ -291,7 +310,9 @@ subscriptions model =
     Sub.none
 
 
+
 -- File list items
+
 
 type alias LoadedFile =
     { name : String

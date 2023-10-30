@@ -100,7 +100,6 @@ enum Call {
     SendText {
         text: String,
     },
-    #[serde(rename_all = "kebab-case")]
     ReceiveText,
     ChooseFile,
     DropFiles {
@@ -300,29 +299,29 @@ async fn handle_message(
             None
         }
         Call::SendFiles { names } => Some(Response::FilesSent({
-            if let Ok(files) = futures::future::try_join_all(
-                state
-                    .files
-                    .lock()
-                    .await
+            let mut files = state.files.lock().await;
+            let sending_files = futures::future::try_join_all(
+                files
                     .iter_mut()
                     .filter(|f| names.contains(&f.name))
                     .map(|f| async {
-                        Ok((PathBuf::from(&f.name), f.handle.open().await?)) as std::io::Result<_>
+                        Ok((
+                            PathBuf::from(&f.name),
+                            f.handle
+                                .open()
+                                .await
+                                .map_err(|_| format!("could not open file `{:?}`", f.name))?,
+                        )) as Result<_, String>
                     }),
             )
-            .await
-            {
-                match state.sender.lock().await.as_mut() {
-                    Some(sender) => sender
-                        .send_flat_files(files)
-                        .await
-                        .map_err(|err| format!("{err:?}")),
-                    None => Err("connection not initialized".to_string()),
-                }
-            } else {
-                // TODO: maybe be able to specify which file
-                Err("could not open file".to_string())
+            .await;
+            match (sending_files, state.sender.lock().await.as_mut()) {
+                (Ok(files), Some(sender)) => sender
+                    .send_flat_files(files)
+                    .await
+                    .map_err(|err| format!("{err:?}")),
+                (Ok(_), None) => Err("connection not initialized".to_string()),
+                (Err(_), _) => Err("could not open file".to_string()),
             }
         })),
         Call::ReceiveFileList => Some(Response::ReceivedFileList({

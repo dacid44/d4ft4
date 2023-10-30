@@ -53,7 +53,7 @@ pub(crate) enum Response {
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(tag = "mode", rename_all = "lowercase")]
 pub(crate) enum InitTransfer {
-    Text(String),
+    Text { text: String },
     Files(FileList),
 }
 
@@ -81,21 +81,21 @@ impl FileList {
 #[serde(tag = "type", rename_all = "lowercase")]
 pub enum FileListItem {
     File { path: PathBuf, size: u64 },
-    Directory(PathBuf),
+    Directory { path: PathBuf },
 }
 
 impl FileListItem {
     pub fn path(&self) -> &Path {
         match self {
             Self::File { path, .. } => path,
-            Self::Directory(path) => path,
+            Self::Directory { path } => path,
         }
     }
 
     pub fn size(&self) -> Option<u64> {
         match self {
             Self::File { size, .. } => Some(*size),
-            Self::Directory(_) => None,
+            Self::Directory { .. } => None,
         }
     }
 }
@@ -103,7 +103,7 @@ impl FileListItem {
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
 #[serde(tag = "response")]
 pub(crate) enum FileListResponse {
-    Accept(Vec<PathBuf>),
+    Accept { allowlist: Vec<PathBuf> },
     Reject { reason: String },
 }
 
