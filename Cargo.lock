@@ -690,6 +690,7 @@ dependencies = [
  "aead",
  "chacha20poly1305",
  "faccess",
+ "futures",
  "hex",
  "rand_chacha 0.3.1",
  "scrypt",

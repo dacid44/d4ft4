@@ -36,22 +36,20 @@ impl Sender {
     /// Send files, without any directory structure. This function will trim file paths down to only the file name.
     pub async fn send_flat_files(&mut self, files: Vec<(PathBuf, &mut File)>) -> D4FTResult<()> {
         let file_list = FileList::from_items(
-            tokio_stream::iter(&files)
-                .then(|(path, f)| async {
-                    Ok(FileListItem::File {
-                        path: path
-                            .file_name()
-                            .ok_or_else(|| D4FTError::CannotReadPath { path: path.clone() })
-                            .map(Into::into)?,
-                        size: f
-                            .metadata()
-                            .await
-                            .map_err(|source| D4FTError::FileOpenError { source })?
-                            .len(),
-                    })
-                })
-                .collect::<D4FTResult<Vec<_>>>()
-                .await?,
+            futures::future::try_join_all(files.iter().map(|(path, f)| async {
+                Ok(FileListItem::File {
+                    path: path
+                        .file_name()
+                        .ok_or_else(|| D4FTError::CannotReadPath { path: path.clone() })
+                        .map(Into::into)?,
+                    size: f
+                        .metadata()
+                        .await
+                        .map_err(|source| D4FTError::FileOpenError { source })?
+                        .len(),
+                }) as D4FTResult<FileListItem>
+            }))
+            .await?,
         );
 
         let mut allowlist = self.prepare_send_files(file_list.clone()).await?;

@@ -300,11 +300,18 @@ async fn handle_message(
             None
         }
         Call::SendFiles { names } => Some(Response::FilesSent({
-            if let Ok(files) = tokio_stream::iter(state.files.lock().await.iter_mut())
-                .filter(|f| names.contains(&f.name))
-                .then(|f| async { Ok((PathBuf::from(&f.name), f.handle.open().await?)) })
-                .collect::<std::io::Result<Vec<_>>>()
-                .await
+            if let Ok(files) = futures::future::try_join_all(
+                state
+                    .files
+                    .lock()
+                    .await
+                    .iter_mut()
+                    .filter(|f| names.contains(&f.name))
+                    .map(|f| async {
+                        Ok((PathBuf::from(&f.name), f.handle.open().await?)) as std::io::Result<_>
+                    }),
+            )
+            .await
             {
                 match state.sender.lock().await.as_mut() {
                     Some(sender) => sender
