@@ -3,19 +3,20 @@ use crate::encoding::{Decryptor, Encryptor};
 use crate::{protocol, D4FTError, D4FTResult, FileList};
 use std::path::{Path, PathBuf};
 use tokio::fs::File;
-use tokio::net::TcpStream;
+use tokio::net::tcp;
 
 pub struct Receiver {
-    socket: TcpStream,
-    encryptor: Encryptor,
-    decryptor: Decryptor,
+    encryptor: Encryptor<tcp::OwnedWriteHalf>,
+    decryptor: Decryptor<tcp::OwnedReadHalf>,
 }
 
 impl Connection for Receiver {
     const IS_SENDER: bool = false;
-    fn init(socket: TcpStream, encryptor: Encryptor, decryptor: Decryptor) -> Self {
+    fn init(
+        encryptor: Encryptor<tcp::OwnedWriteHalf>,
+        decryptor: Decryptor<tcp::OwnedReadHalf>,
+    ) -> Self {
         Self {
-            socket,
             encryptor,
             decryptor,
         }
@@ -24,27 +25,19 @@ impl Connection for Receiver {
 
 impl Receiver {
     pub async fn receive_text(&mut self) -> D4FTResult<String> {
-        let transfer = self
-            .decryptor
-            .decode::<protocol::InitTransfer, _>(&mut self.socket)
-            .await?;
+        let transfer = self.decryptor.decode::<protocol::InitTransfer>().await?;
 
         match transfer {
             protocol::InitTransfer::Text { text } => {
-                self.encryptor
-                    .encode(&protocol::Response::Accept, &mut self.socket)
-                    .await?;
+                self.encryptor.encode(&protocol::Response::Accept).await?;
                 Ok(text)
             }
             protocol::InitTransfer::Files(_) => {
                 let reason = "got files, wanted text".to_string();
                 self.encryptor
-                    .encode(
-                        &protocol::Response::Reject {
-                            reason: reason.clone(),
-                        },
-                        &mut self.socket,
-                    )
+                    .encode(&protocol::Response::Reject {
+                        reason: reason.clone(),
+                    })
                     .await?;
                 Err(D4FTError::RejectedTransfer { reason })
             }
@@ -52,21 +45,15 @@ impl Receiver {
     }
 
     pub async fn receive_file_list(&mut self) -> D4FTResult<FileList> {
-        let transfer = self
-            .decryptor
-            .decode::<protocol::InitTransfer, _>(&mut self.socket)
-            .await?;
+        let transfer = self.decryptor.decode::<protocol::InitTransfer>().await?;
 
         match transfer {
             protocol::InitTransfer::Text { .. } => {
                 let reason = "got text, wanted files".to_string();
                 self.encryptor
-                    .encode(
-                        &protocol::Response::Reject {
-                            reason: reason.clone(),
-                        },
-                        &mut self.socket,
-                    )
+                    .encode(&protocol::Response::Reject {
+                        reason: reason.clone(),
+                    })
                     .await?;
                 Err(D4FTError::RejectedTransfer { reason })
             }
@@ -89,10 +76,7 @@ impl Receiver {
         println!("receive_files setup done");
 
         while !allowlist.is_empty() {
-            let file_header = self
-                .decryptor
-                .decode::<protocol::FileHeader, _>(&mut self.socket)
-                .await?;
+            let file_header = self.decryptor.decode::<protocol::FileHeader>().await?;
 
             println!("got a file header: {:?}", &file_header);
 
@@ -106,12 +90,10 @@ impl Receiver {
                     })?))
                     .await
                     .map_err(|source| D4FTError::FileWriteError { source })?;
-                self.decryptor.decode_file(handle, &mut self.socket).await?;
+                self.decryptor.decode_file(handle).await?;
             } else {
                 println!("ignoring file");
-                self.decryptor
-                    .decode_file(tokio::io::sink(), &mut self.socket)
-                    .await?;
+                self.decryptor.decode_file(tokio::io::sink()).await?;
             }
         }
 
@@ -120,10 +102,7 @@ impl Receiver {
 
     async fn accept_files(&mut self, allowlist: Vec<PathBuf>) -> D4FTResult<()> {
         self.encryptor
-            .encode(
-                &protocol::FileListResponse::Accept { allowlist },
-                &mut self.socket,
-            )
+            .encode(&protocol::FileListResponse::Accept { allowlist })
             .await
     }
 }

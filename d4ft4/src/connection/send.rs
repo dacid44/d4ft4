@@ -4,20 +4,20 @@ use crate::{protocol, D4FTError, D4FTResult, FileList, FileListItem};
 use std::path::PathBuf;
 use tokio::fs::File;
 use tokio::io::AsyncSeekExt;
-use tokio::net::TcpStream;
-use tokio_stream::StreamExt;
+use tokio::net::tcp;
 
 pub struct Sender {
-    socket: TcpStream,
-    encryptor: Encryptor,
-    decryptor: Decryptor,
+    encryptor: Encryptor<tcp::OwnedWriteHalf>,
+    decryptor: Decryptor<tcp::OwnedReadHalf>,
 }
 
 impl Connection for Sender {
     const IS_SENDER: bool = true;
-    fn init(socket: TcpStream, encryptor: Encryptor, decryptor: Decryptor) -> Self {
+    fn init(
+        encryptor: Encryptor<tcp::OwnedWriteHalf>,
+        decryptor: Decryptor<tcp::OwnedReadHalf>,
+    ) -> Self {
         Self {
-            socket,
             encryptor,
             decryptor,
         }
@@ -27,7 +27,7 @@ impl Connection for Sender {
 impl Sender {
     pub async fn send_text(&mut self, text: String) -> D4FTResult<()> {
         self.encryptor
-            .encode(&protocol::InitTransfer::Text { text }, &mut self.socket)
+            .encode(&protocol::InitTransfer::Text { text })
             .await?;
 
         self.accept_response().await
@@ -76,12 +76,12 @@ impl Sender {
 
     async fn prepare_send_files(&mut self, file_list: FileList) -> D4FTResult<Vec<PathBuf>> {
         self.encryptor
-            .encode(&protocol::InitTransfer::Files(file_list), &mut self.socket)
+            .encode(&protocol::InitTransfer::Files(file_list))
             .await?;
 
         let response = self
             .decryptor
-            .decode::<protocol::FileListResponse, _>(&mut self.socket)
+            .decode::<protocol::FileListResponse>()
             .await?;
 
         match response {
@@ -94,28 +94,22 @@ impl Sender {
 
     async fn send_file(&mut self, handle: &mut File, path: PathBuf, size: u64) -> D4FTResult<()> {
         self.encryptor
-            .encode(
-                &protocol::FileHeader {
-                    path,
-                    size,
-                    hash: None,
-                },
-                &mut self.socket,
-            )
+            .encode(&protocol::FileHeader {
+                path,
+                size,
+                hash: None,
+            })
             .await?;
 
         handle
             .seek(std::io::SeekFrom::Start(0))
             .await
             .map_err(|source| D4FTError::FileReadError { source })?;
-        self.encryptor.encode_file(handle, &mut self.socket).await
+        self.encryptor.encode_file(handle).await
     }
 
     async fn accept_response(&mut self) -> D4FTResult<()> {
-        let response = self
-            .decryptor
-            .decode::<protocol::Response, _>(&mut self.socket)
-            .await?;
+        let response = self.decryptor.decode::<protocol::Response>().await?;
 
         match response {
             protocol::Response::Accept => Ok(()),

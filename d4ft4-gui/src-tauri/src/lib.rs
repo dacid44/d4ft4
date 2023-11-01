@@ -7,7 +7,6 @@ use tauri::async_runtime::{channel, Mutex, Receiver, Sender};
 use tauri::Manager;
 use tauri_plugin_dialog::{DialogExt, FileResponse};
 use tokio::fs::File;
-use tokio_stream::StreamExt;
 
 #[cfg(target_os = "android")]
 mod android;

@@ -14,7 +14,7 @@
   - [ ] Default addresses/ports
 - [ ] Custom color theme/styling (either my own, or finding a way to match the user's)
 - [ ] Possibly create an Elm function to handle mapping from `Response`s to `Msg`s
-- [ ] Possibly move ownership of the socket handles into the `Encryptor` and `Decryptor` types, maybe as `Serializer` and `Deserializer` types
+- [x] Possibly move ownership of the socket handles into the `Encryptor` and `Decryptor` types, maybe as `Serializer` and `Deserializer` types
 - [ ] Add ability to select multiple files at once, at least on desktop platforms (maybe see if Android supports this, it may not, or at least, not easily)
 - [ ] Get rid of total size field, it's really not needed, especially when it's possible that not all of the files will be sent
 - [ ] Give functions that don't return immediately a callback to give status updates

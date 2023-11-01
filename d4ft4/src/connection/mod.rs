@@ -1,5 +1,5 @@
 use crate::{encoding, protocol, D4FTError, D4FTResult};
-use tokio::net::{TcpListener, TcpStream, ToSocketAddrs};
+use tokio::net::{tcp, TcpListener, TcpStream, ToSocketAddrs};
 
 mod receive;
 mod send;
@@ -10,9 +10,8 @@ pub use send::Sender;
 trait Connection {
     const IS_SENDER: bool;
     fn init(
-        socket: TcpStream,
-        encryptor: encoding::Encryptor,
-        decryptor: encoding::Decryptor,
+        encryptor: encoding::Encryptor<tcp::OwnedWriteHalf>,
+        decryptor: encoding::Decryptor<tcp::OwnedReadHalf>,
     ) -> Self;
 }
 
@@ -54,23 +53,27 @@ async fn init_listen<A: ToSocketAddrs, Conn: Connection>(
     let handshake = encoding::decode_plaintext::<protocol::Handshake, _>(&mut socket).await?;
 
     let ivs = encoding::InitializationVectors::from_protocol(handshake.encryption)?;
-    let (mut encryptor, mut decryptor) = tokio::join!(
+    let (rx_sock, tx_sock) = socket.into_split();
+    let (mut encryptor, decryptor) = tokio::join!(
         encoding::Encryptor::new(
             password.clone(),
             ivs.server_client_salt,
-            &ivs.server_client_nonce
+            &ivs.server_client_nonce,
+            tx_sock,
         ),
-        encoding::Decryptor::new(password, ivs.client_server_salt, &ivs.client_server_nonce),
+        encoding::Decryptor::new(
+            password,
+            ivs.client_server_salt,
+            &ivs.client_server_nonce,
+            rx_sock
+        ),
     );
 
     if handshake.version != "4" {
         encryptor
-            .encode(
-                &protocol::Response::Reject {
-                    reason: "incompatible version".to_string(),
-                },
-                &mut socket,
-            )
+            .encode(&protocol::Response::Reject {
+                reason: "incompatible version".to_string(),
+            })
             .await?;
         return Err(D4FTError::RejectedHandshake {
             reason: "incompatible version".to_string(),
@@ -87,21 +90,16 @@ async fn init_listen<A: ToSocketAddrs, Conn: Connection>(
             }
         );
         encryptor
-            .encode(
-                &protocol::Response::Reject {
-                    reason: reason.clone(),
-                },
-                &mut socket,
-            )
+            .encode(&protocol::Response::Reject {
+                reason: reason.clone(),
+            })
             .await?;
         return Err(D4FTError::RejectedHandshake { reason });
     }
 
-    encryptor
-        .encode(&protocol::Response::Accept, &mut socket)
-        .await?;
+    encryptor.encode(&protocol::Response::Accept).await?;
 
-    Ok(Conn::init(socket, encryptor, decryptor))
+    Ok(Conn::init(encryptor, decryptor))
 }
 
 async fn init_connect<A: ToSocketAddrs, Conn: Connection>(
@@ -124,21 +122,25 @@ async fn init_connect<A: ToSocketAddrs, Conn: Connection>(
     )
     .await?;
 
-    let (mut decryptor, mut encryptor) = tokio::join!(
+    let (tx_sock, rx_sock) = socket.into_split();
+    let (mut decryptor, encryptor) = tokio::join!(
         encoding::Decryptor::new(
             password.clone(),
             ivs.server_client_salt,
-            &ivs.server_client_nonce
+            &ivs.server_client_nonce,
+            tx_sock,
         ),
-        encoding::Encryptor::new(password, ivs.client_server_salt, &ivs.client_server_nonce),
+        encoding::Encryptor::new(
+            password,
+            ivs.client_server_salt,
+            &ivs.client_server_nonce,
+            rx_sock
+        ),
     );
 
-    if let protocol::Response::Reject { reason } = decryptor
-        .decode::<protocol::Response, _>(&mut socket)
-        .await?
-    {
+    if let protocol::Response::Reject { reason } = decryptor.decode::<protocol::Response>().await? {
         return Err(D4FTError::RejectedHandshake { reason });
     }
 
-    Ok(Conn::init(socket, encryptor, decryptor))
+    Ok(Conn::init(encryptor, decryptor))
 }

@@ -27,12 +27,12 @@ tauri-plugin-dialog = { git = "https://github.com/tauri-apps/plugins-workspace",
 tauri-plugin-fs = { git = "https://github.com/tauri-apps/plugins-workspace", branch = "v2" }
 tauri-plugin-os = { git = "https://github.com/tauri-apps/plugins-workspace", branch = "v2" }
 tokio = { version = "1.31", features = ["full", "tracing"] }
-tokio-stream = "0.1"
+# tokio-stream = "0.1"
 futures = "0.3"
 wry = { version = "0.33", default-features = false }
 #console-subscriber = "0.1.10"
 
-#[target.'cfg(android)'.dependencies]
+[target.'cfg(android)'.dependencies]
 jni = "0.21.1"
 
 [features]

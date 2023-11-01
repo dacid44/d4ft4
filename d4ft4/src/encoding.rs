@@ -1,6 +1,6 @@
 use aead::rand_core::{RngCore, SeedableRng};
 use serde::{de::DeserializeOwned, Serialize};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
 use crate::error::{D4FTError, D4FTResult};
 
@@ -130,37 +130,33 @@ async fn derive_key(password: String, salt: [u8; 32]) -> [u8; 32] {
     .expect("Key derive task should not panic on hardcoded params and should not be cancelled")
 }
 
-pub(crate) struct Encryptor {
+pub(crate) struct Encryptor<W: AsyncWrite + Unpin> {
     encryptor: aead::stream::EncryptorBE32<chacha20poly1305::XChaCha20Poly1305>,
+    writer: W,
 }
 
-impl Encryptor {
-    pub(crate) async fn new(password: String, salt: [u8; 32], nonce: &[u8; 19]) -> Self {
+impl<W: AsyncWrite + Unpin> Encryptor<W> {
+    pub(crate) async fn new(password: String, salt: [u8; 32], nonce: &[u8; 19], writer: W) -> Self {
         Self {
             encryptor: aead::stream::EncryptorBE32::new(
                 &derive_key(password, salt).await.into(),
                 nonce.into(),
             ),
+            writer,
         }
     }
 
-    pub(crate) async fn encode<T: Serialize, W: AsyncWriteExt + Unpin>(
-        &mut self,
-        data: &T,
-        writer: W,
-    ) -> D4FTResult<()> {
+    pub(crate) async fn encode<T: Serialize>(&mut self, data: &T) -> D4FTResult<()> {
         self.encode_data(
             serde_json::to_vec(data).map_err(|source| D4FTError::JsonEncodeError { source })?,
-            writer,
         )
         .await
     }
 
     // Could return a hash later
-    pub(crate) async fn encode_file<F: AsyncReadExt + Unpin, W: AsyncWriteExt + Unpin>(
+    pub(crate) async fn encode_file<F: AsyncRead + Unpin>(
         &mut self,
         mut file: F,
-        mut writer: W,
     ) -> D4FTResult<()> {
         loop {
             let mut bytes = vec![0u8; FILE_CHUNK_SIZE];
@@ -172,7 +168,7 @@ impl Encryptor {
 
             bytes.truncate(num_bytes);
 
-            self.encode_data(bytes, &mut writer).await?;
+            self.encode_data(bytes).await?;
 
             // End of file sends a packet with 0 bytes
             if num_bytes == 0 {
@@ -181,11 +177,7 @@ impl Encryptor {
         }
     }
 
-    async fn encode_data<W: AsyncWriteExt + Unpin>(
-        &mut self,
-        mut data: Vec<u8>,
-        mut writer: W,
-    ) -> D4FTResult<()> {
+    async fn encode_data(&mut self, mut data: Vec<u8>) -> D4FTResult<()> {
         // Build header
         let mut header = [0u8; 12];
         header[0..4].copy_from_slice(b"D4FT");
@@ -197,49 +189,47 @@ impl Encryptor {
             .map_err(|source| D4FTError::EncryptionError { source })?;
 
         // Write header
-        writer
+        self.writer
             .write_all(&header)
             .await
             .map_err(|source| D4FTError::EncodeWriteError { source })?;
 
         // Write data
-        writer
+        self.writer
             .write_all(&data)
             .await
             .map_err(|source| D4FTError::EncodeWriteError { source })
     }
 }
 
-pub(crate) struct Decryptor {
+pub(crate) struct Decryptor<R: AsyncRead + Unpin> {
     decryptor: aead::stream::DecryptorBE32<chacha20poly1305::XChaCha20Poly1305>,
+    reader: R,
 }
 
-impl Decryptor {
-    pub(crate) async fn new(password: String, salt: [u8; 32], nonce: &[u8; 19]) -> Self {
+impl<R: AsyncRead + Unpin> Decryptor<R> {
+    pub(crate) async fn new(password: String, salt: [u8; 32], nonce: &[u8; 19], reader: R) -> Self {
         Self {
             decryptor: aead::stream::DecryptorBE32::new(
                 &derive_key(password, salt).await.into(),
                 nonce.into(),
             ),
+            reader,
         }
     }
 
-    pub(crate) async fn decode<T: DeserializeOwned, R: AsyncReadExt + Unpin>(
-        &mut self,
-        reader: R,
-    ) -> D4FTResult<T> {
-        serde_json::from_slice(&self.decode_data(reader).await?)
+    pub(crate) async fn decode<T: DeserializeOwned>(&mut self) -> D4FTResult<T> {
+        serde_json::from_slice(&self.decode_data().await?)
             .map_err(|source| D4FTError::JsonDecodeError { source })
     }
 
     // Could return a hash later
-    pub(crate) async fn decode_file<F: AsyncWriteExt + Unpin, R: AsyncReadExt + Unpin>(
+    pub(crate) async fn decode_file<F: AsyncWrite + Unpin>(
         &mut self,
         mut file: F,
-        mut reader: R,
     ) -> D4FTResult<()> {
         loop {
-            let bytes = self.decode_data(&mut reader).await?;
+            let bytes = self.decode_data().await?;
 
             if bytes.len() == 0 {
                 return Ok(());
@@ -251,10 +241,10 @@ impl Decryptor {
         }
     }
 
-    async fn decode_data<R: AsyncReadExt + Unpin>(&mut self, mut reader: R) -> D4FTResult<Vec<u8>> {
+    async fn decode_data(&mut self) -> D4FTResult<Vec<u8>> {
         // Read header
         let mut header = [0u8; 12];
-        reader
+        self.reader
             .read_exact(&mut header)
             .await
             .map_err(|source| D4FTError::DecodeReadError { source })?;
@@ -273,7 +263,7 @@ impl Decryptor {
 
         // Read data
         let mut bytes = vec![0u8; num_bytes];
-        reader
+        self.reader
             .read_exact(&mut bytes)
             .await
             .map_err(|source| D4FTError::DecodeReadError { source })?;
