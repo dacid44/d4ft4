@@ -219,11 +219,10 @@ update msg model =
 
         DeleteSelectedFiles ->
             ( { model | files = model.files |> List.filter (not << .selected) }
-            , Common.sendCall <|
-                Common.encodeCall
-                    { returnPath = [ "Send" ]
-                    , message = Common.DropFiles { names = model.files |> List.filter .selected |> List.map .name }
-                    }
+            , Common.callBackend
+                { returnPath = [ "Send" ]
+                , message = Common.DropFiles { names = model.files |> List.filter .selected |> List.map .name }
+                }
             )
 
         DestinationMsg subMsg ->
@@ -237,16 +236,15 @@ update msg model =
             ( { model | isSuccess = False }
             , case Peer.addressString model.destination of
                 Just address ->
-                    Common.sendCall <|
-                        Common.encodeCall
-                            { returnPath = [ "Send", modeString model.mode ]
-                            , message =
-                                Common.SetupSender
-                                    { address = address
-                                    , isServer = model.destination.mode == Peer.Listen
-                                    , password = model.password
-                                    }
-                            }
+                    Common.callBackend
+                        { returnPath = [ "Send", modeString model.mode ]
+                        , message =
+                            Common.SetupSender
+                                { address = address
+                                , isServer = model.destination.mode == Peer.Listen
+                                , password = model.password
+                                }
+                        }
 
                 Nothing ->
                     Cmd.none
@@ -259,20 +257,18 @@ update msg model =
 
                 ( [ "Text" ], Common.SetupComplete (Ok _) ) ->
                     ( model
-                    , Common.sendCall <|
-                        Common.encodeCall
-                            { returnPath = [ "Send" ]
-                            , message = Common.SendText { text = model.text }
-                            }
+                    , Common.callBackend
+                        { returnPath = [ "Send" ]
+                        , message = Common.SendText { text = model.text }
+                        }
                     )
 
                 ( [ "Files" ], Common.SetupComplete (Ok _) ) ->
                     ( model
-                    , Common.sendCall <|
-                        Common.encodeCall
-                            { returnPath = [ "Send" ]
-                            , message = Common.SendFiles { names = model.files |> List.filter .selected |> List.map .name }
-                            }
+                    , Common.callBackend
+                        { returnPath = [ "Send" ]
+                        , message = Common.SendFiles { names = model.files |> List.filter .selected |> List.map .name }
+                        }
                     )
 
                 ( _, Common.TextSent (Err error) ) ->
@@ -289,11 +285,10 @@ update msg model =
 
         SelectFile ->
             ( model
-            , Common.sendCall <|
-                Common.encodeCall
-                    { returnPath = [ "Send" ]
-                    , message = Common.ChooseFile
-                    }
+            , Common.callBackend
+                { returnPath = [ "Send" ]
+                , message = Common.ChooseFile
+                }
             )
 
         PathAdded path ->

@@ -261,16 +261,15 @@ update msg model =
             ( { model | isConnected = False }
             , case Peer.addressString model.source of
                 Just address ->
-                    Common.sendCall <|
-                        Common.encodeCall
-                            { returnPath = [ "Receive", modeString model.mode ]
-                            , message =
-                                Common.SetupReceiver
-                                    { address = address
-                                    , isServer = model.source.mode == Peer.Listen
-                                    , password = model.password
-                                    }
-                            }
+                    Common.callBackend
+                        { returnPath = [ "Receive", modeString model.mode ]
+                        , message =
+                            Common.SetupReceiver
+                                { address = address
+                                , isServer = model.source.mode == Peer.Listen
+                                , password = model.password
+                                }
+                        }
 
                 Nothing ->
                     Cmd.none
@@ -279,32 +278,30 @@ update msg model =
         -- Maybe not needed anymore, unless maybe in autodetect?
         ReceiveText ->
             ( model
-            , Common.sendCall <|
-                Common.encodeCall
-                    { returnPath = [ "Receive" ]
-                    , message = Common.ReceiveText
-                    }
+            , Common.callBackend
+                { returnPath = [ "Receive" ]
+                , message = Common.ReceiveText
+                }
             )
 
         ReceiveFiles ->
             ( model
-            , Common.sendCall <|
-                Common.encodeCall
-                    { returnPath = [ "Receive" ]
-                    , message =
-                        Common.ReceiveFiles
-                            { allowlist =
-                                model.files
-                                    |> List.filter .selected
-                                    |> List.map .name
-                            , outDir =
-                                if String.isEmpty model.outDir then
-                                    Nothing
+            , Common.callBackend
+                { returnPath = [ "Receive" ]
+                , message =
+                    Common.ReceiveFiles
+                        { allowlist =
+                            model.files
+                                |> List.filter .selected
+                                |> List.map .name
+                        , outDir =
+                            if String.isEmpty model.outDir then
+                                Nothing
 
-                                else
-                                    Just model.outDir
-                            }
-                    }
+                            else
+                                Just model.outDir
+                        }
+                }
             )
 
         ReceiveResponse { returnPath, message } ->
@@ -313,15 +310,14 @@ update msg model =
                     ( { model | messages = model.messages ++ [ error ] }, Cmd.none )
 
                 ( [ "Text" ], Common.SetupComplete (Ok _) ) ->
-                    ( { model | isConnected = True }, Common.sendCall <| Common.encodeCall <| { returnPath = [ "Receive" ], message = Common.ReceiveText } )
+                    ( { model | isConnected = True }, Common.callBackend <| { returnPath = [ "Receive" ], message = Common.ReceiveText } )
 
                 ( [ "Files" ], Common.SetupComplete (Ok _) ) ->
                     ( { model | isConnected = True }
-                    , Common.sendCall <|
-                        Common.encodeCall
-                            { returnPath = [ "Receive" ]
-                            , message = Common.ReceiveFileList
-                            }
+                    , Common.callBackend
+                        { returnPath = [ "Receive" ]
+                        , message = Common.ReceiveFileList
+                        }
                     )
 
                 ( _, Common.TextReceived (Err error) ) ->

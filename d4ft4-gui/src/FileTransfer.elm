@@ -122,8 +122,7 @@ subscriptions model =
     Sub.batch
         [ Sub.map SendMsg (Send.subscriptions model.send)
         , Sub.map ReceiveMsg (Receive.subscriptions model.receive)
-        , Common.returnOpenFileDialog (Send.PathAdded >> SendMsg)
-        , Common.receiveResponse (Json.Decode.decodeValue Common.decodeResponse >> ReceiveResponse)
+        , Common.receiveBackendMessage ReceiveResponse
         ]
 
 

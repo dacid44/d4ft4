@@ -1,4 +1,4 @@
-port module Common exposing (..)
+port module Common exposing (Call(..), Message, Response(..), callBackend, filesInList, receiveBackendMessage)
 
 import Home exposing (Msg)
 import Json.Decode as Decode exposing (Decoder, decodeValue, field, map, oneOf, string)
@@ -271,3 +271,13 @@ decodeFileListItem =
                     _ ->
                         Decode.fail "Unknown file list item type"
             )
+
+
+callBackend : Message Call -> Cmd msg
+callBackend =
+    encodeCall >> sendCall
+
+
+receiveBackendMessage : (Result Decode.Error (Message Response) -> msg) -> Sub msg
+receiveBackendMessage toMsg =
+    receiveResponse (Decode.decodeValue decodeResponse >> toMsg)
