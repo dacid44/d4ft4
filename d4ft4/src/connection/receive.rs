@@ -1,6 +1,6 @@
 use crate::connection::Connection;
 use crate::encoding::{Decryptor, Encryptor};
-use crate::{protocol, D4FTError, D4FTResult, FileList};
+use crate::{protocol, D4FTError, D4FTResult, FileListItem};
 use std::path::{Path, PathBuf};
 use tokio::fs::File;
 use tokio::net::tcp;
@@ -32,7 +32,7 @@ impl Receiver {
                 self.encryptor.encode(&protocol::Response::Accept).await?;
                 Ok(text)
             }
-            protocol::InitTransfer::Files(_) => {
+            protocol::InitTransfer::Files { .. } => {
                 let reason = "got files, wanted text".to_string();
                 self.encryptor
                     .encode(&protocol::Response::Reject {
@@ -44,7 +44,7 @@ impl Receiver {
         }
     }
 
-    pub async fn receive_file_list(&mut self) -> D4FTResult<FileList> {
+    pub async fn receive_file_list(&mut self) -> D4FTResult<Vec<FileListItem>> {
         let transfer = self.decryptor.decode::<protocol::InitTransfer>().await?;
 
         match transfer {
@@ -57,7 +57,7 @@ impl Receiver {
                     .await?;
                 Err(D4FTError::RejectedTransfer { reason })
             }
-            protocol::InitTransfer::Files(file_list) => Ok(file_list),
+            protocol::InitTransfer::Files { files } => Ok(files),
         }
     }
 

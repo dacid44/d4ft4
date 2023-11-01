@@ -86,14 +86,8 @@ type Response
     | TextReceived (Result String String)
     | FileSelected (Result String String)
     | FilesSent (Result String ())
-    | ReceivedFileList (Result String FileList)
+    | ReceivedFileList (Result String (List FileListItem))
     | ReceivedFiles (Result String ())
-
-
-type alias FileList =
-    { list : List FileListItem
-    , totalSize : Int
-    }
 
 
 type FileListItem
@@ -101,18 +95,17 @@ type FileListItem
     | Directory { path : String }
 
 
-filesInList : FileList -> List { path : String, size : Int }
+filesInList : List FileListItem -> List { path : String, size : Int }
 filesInList =
-    .list
-        >> List.filterMap
-            (\item ->
-                case item of
-                    File file ->
-                        Just file
+    List.filterMap
+        (\item ->
+            case item of
+                File file ->
+                    Just file
 
-                    Directory _ ->
-                        Nothing
-            )
+                Directory _ ->
+                    Nothing
+        )
 
 
 encodeCall : Message Call -> Value
@@ -235,7 +228,7 @@ decodeResponse =
                                 Decode.map FilesSent <| decodeResult Decode.string <| Decode.succeed ()
 
                             "ReceivedFileList" ->
-                                Decode.map ReceivedFileList <| decodeResult Decode.string <| decodeFileList
+                                Decode.map ReceivedFileList <| decodeResult Decode.string <| Decode.list decodeFileListItem
 
                             "ReceivedFiles" ->
                                 Decode.map ReceivedFiles <| decodeResult Decode.string <| Decode.succeed ()
@@ -245,13 +238,6 @@ decodeResponse =
                     )
             )
         )
-
-
-decodeFileList : Decoder FileList
-decodeFileList =
-    Decode.map2 FileList
-        (Decode.field "list" <| Decode.list decodeFileListItem)
-        (Decode.field "total-size" Decode.int)
 
 
 decodeFileListItem : Decoder FileListItem

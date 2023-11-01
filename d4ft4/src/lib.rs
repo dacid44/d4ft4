@@ -17,7 +17,7 @@ use tokio::{
 
 pub use error::{D4FTError, D4FTResult};
 
-pub use protocol::{FileList, FileListItem, TransferMode};
+pub use protocol::{FileListItem, TransferMode};
 
 pub use connection::{init_receive, init_send, Receiver, Sender};
 

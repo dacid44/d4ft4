@@ -54,27 +54,7 @@ pub(crate) enum Response {
 #[serde(tag = "mode", rename_all = "lowercase")]
 pub(crate) enum InitTransfer {
     Text { text: String },
-    Files(FileList),
-}
-
-// #[derive(Serialize, Deserialize, Debug)]
-// pub(crate) struct SendText(pub(crate) String);
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
-#[serde(rename_all = "kebab-case")]
-pub struct FileList {
-    pub(crate) list: Vec<FileListItem>,
-    pub(crate) total_size: u64,
-}
-
-impl FileList {
-    pub fn from_items(items: Vec<FileListItem>) -> Self {
-        let total_size = items.iter().filter_map(FileListItem::size).sum();
-        Self {
-            list: items,
-            total_size,
-        }
-    }
+    Files { files: Vec<FileListItem> },
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]

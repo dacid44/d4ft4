@@ -133,7 +133,7 @@ enum Response {
     TextReceived(Result<String, String>),
     FileSelected(Result<String, String>),
     FilesSent(Result<(), String>),
-    ReceivedFileList(Result<d4ft4::FileList, String>),
+    ReceivedFileList(Result<Vec<d4ft4::FileListItem>, String>),
     ReceivedFiles(Result<(), String>),
 }
 

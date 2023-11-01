@@ -1,6 +1,6 @@
 use crate::connection::Connection;
 use crate::encoding::{Decryptor, Encryptor};
-use crate::{protocol, D4FTError, D4FTResult, FileList, FileListItem};
+use crate::{protocol, D4FTError, D4FTResult, FileListItem};
 use std::path::PathBuf;
 use tokio::fs::File;
 use tokio::io::AsyncSeekExt;
@@ -35,22 +35,20 @@ impl Sender {
 
     /// Send files, without any directory structure. This function will trim file paths down to only the file name.
     pub async fn send_flat_files(&mut self, files: Vec<(PathBuf, &mut File)>) -> D4FTResult<()> {
-        let file_list = FileList::from_items(
-            futures::future::try_join_all(files.iter().map(|(path, f)| async {
-                Ok(FileListItem::File {
-                    path: path
-                        .file_name()
-                        .ok_or_else(|| D4FTError::CannotReadPath { path: path.clone() })
-                        .map(Into::into)?,
-                    size: f
-                        .metadata()
-                        .await
-                        .map_err(|source| D4FTError::FileOpenError { source })?
-                        .len(),
-                }) as D4FTResult<FileListItem>
-            }))
-            .await?,
-        );
+        let file_list = futures::future::try_join_all(files.iter().map(|(path, f)| async {
+            Ok(FileListItem::File {
+                path: path
+                    .file_name()
+                    .ok_or_else(|| D4FTError::CannotReadPath { path: path.clone() })
+                    .map(Into::into)?,
+                size: f
+                    .metadata()
+                    .await
+                    .map_err(|source| D4FTError::FileOpenError { source })?
+                    .len(),
+            }) as D4FTResult<FileListItem>
+        }))
+        .await?;
 
         let mut allowlist = self.prepare_send_files(file_list.clone()).await?;
         allowlist.sort();
@@ -58,7 +56,7 @@ impl Sender {
         for (handle, item) in files
             .into_iter()
             .map(|f| f.1)
-            .zip(file_list.list.into_iter())
+            .zip(file_list.into_iter())
             .filter(|(_, item)| {
                 allowlist
                     .binary_search_by_key(&item.path(), |p| p.as_ref())
@@ -74,9 +72,9 @@ impl Sender {
         Ok(())
     }
 
-    async fn prepare_send_files(&mut self, file_list: FileList) -> D4FTResult<Vec<PathBuf>> {
+    async fn prepare_send_files(&mut self, files: Vec<FileListItem>) -> D4FTResult<Vec<PathBuf>> {
         self.encryptor
-            .encode(&protocol::InitTransfer::Files(file_list))
+            .encode(&protocol::InitTransfer::Files { files })
             .await?;
 
         let response = self

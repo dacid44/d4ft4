@@ -61,7 +61,6 @@ type alias Model =
     , text : String
     , password : String
     , files : List ReceivedFile
-    , totalSize : Maybe Int
     , outDir : String
     , isConnected : Bool
     , messages : List String
@@ -76,7 +75,6 @@ init platform =
     , text = ""
     , password = ""
     , files = []
-    , totalSize = Nothing
     , outDir = ""
     , isConnected = False
     , messages = []
@@ -332,7 +330,6 @@ update msg model =
                             fileList
                                 |> Common.filesInList
                                 |> List.map (\file -> initReceivedFile file.path file.size)
-                        , totalSize = Just fileList.totalSize
                       }
                     , Cmd.none
                     )
