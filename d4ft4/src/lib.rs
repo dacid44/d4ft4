@@ -19,7 +19,7 @@ pub use error::{D4FTError, D4FTResult};
 
 pub use protocol::{FileListItem, TransferMode};
 
-pub use connection::{init_receive, init_send, Receiver, Sender};
+pub use connection::{init_receive, init_send, Connection, Receiver, Sender};
 
 // pub struct Connection {
 //     stage: TransferStage,

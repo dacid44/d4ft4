@@ -304,13 +304,10 @@ update msg model =
 
         ReceiveResponse { returnPath, message } ->
             case ( returnPath, message ) of
-                ( _, Common.SetupComplete (Err error) ) ->
-                    ( { model | messages = model.messages ++ [ error ] }, Cmd.none )
-
-                ( [ "Text" ], Common.SetupComplete (Ok _) ) ->
+                ( [ "Text" ], Common.SetupComplete ) ->
                     ( { model | isConnected = True }, Common.callBackend <| { returnPath = [ "Receive" ], message = Common.ReceiveText } )
 
-                ( [ "Files" ], Common.SetupComplete (Ok _) ) ->
+                ( [ "Files" ], Common.SetupComplete ) ->
                     ( { model | isConnected = True }
                     , Common.callBackend
                         { returnPath = [ "Receive" ]
@@ -318,13 +315,10 @@ update msg model =
                         }
                     )
 
-                ( _, Common.TextReceived (Err error) ) ->
-                    ( { model | messages = model.messages ++ [ error ] }, Cmd.none )
-
-                ( _, Common.TextReceived (Ok text) ) ->
+                ( _, Common.TextReceived text ) ->
                     ( { model | text = text }, Cmd.none )
 
-                ( _, Common.ReceivedFileList (Ok fileList) ) ->
+                ( _, Common.ReceivedFileList fileList ) ->
                     ( { model
                         | files =
                             fileList
@@ -333,6 +327,9 @@ update msg model =
                       }
                     , Cmd.none
                     )
+
+                ( _, Common.Error error ) ->
+                    ( { model | messages = model.messages ++ [ error ] }, Cmd.none )
 
                 _ ->
                     ( model, Cmd.none )

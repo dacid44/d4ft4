@@ -2,7 +2,8 @@ use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use std::{fmt::Debug, io::Read};
 
-use d4ft4::D4FTResult;
+use d4ft4::{Connection, D4FTError, D4FTResult};
+use futures::{future, FutureExt, TryFutureExt};
 use tauri::async_runtime::{channel, Mutex, Receiver, Sender};
 use tauri::Manager;
 use tauri_plugin_dialog::{DialogExt, FileResponse};
@@ -20,11 +21,7 @@ pub fn run() {
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_os::init())
         .manage(State::new())
-        .invoke_handler(tauri::generate_handler![
-            handle_message,
-            receive_response,
-            open_file_dialog
-        ])
+        .invoke_handler(tauri::generate_handler![handle_message, receive_response,])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
@@ -126,15 +123,25 @@ struct SetupParams {
 }
 
 #[derive(Debug, serde::Serialize)]
-#[serde(tag = "name")]
+#[serde(tag = "name", content = "content")]
 enum Response {
-    SetupComplete(Result<(), String>),
-    TextSent(Result<(), String>),
-    TextReceived(Result<String, String>),
-    FileSelected(Result<String, String>),
-    FilesSent(Result<(), String>),
-    ReceivedFileList(Result<Vec<d4ft4::FileListItem>, String>),
-    ReceivedFiles(Result<(), String>),
+    SetupComplete,
+    TextSent,
+    TextReceived(String),
+    FileSelected(String),
+    FilesSent,
+    ReceivedFileList(Vec<d4ft4::FileListItem>),
+    ReceivedFiles,
+    Error(String),
+}
+
+impl From<Result<Response, String>> for Response {
+    fn from(value: Result<Response, String>) -> Self {
+        match value {
+            Ok(response) => response,
+            Err(message) => Response::Error(message),
+        }
+    }
 }
 
 #[tauri::command]
@@ -149,48 +156,44 @@ async fn handle_message(
             address,
             is_server,
             password,
-        }) => Some(Response::SetupComplete(
-            match d4ft4::init_send(is_server, address, password).await {
-                Ok(sender) => {
-                    *state.sender.lock().await = Some(sender);
-                    Ok(())
-                }
-                Err(err) => Err(format!("{err:?}")),
-            },
-        )),
+        }) => Some(match d4ft4::init_send(is_server, address, password).await {
+            Ok(sender) => {
+                *state.sender.lock().await = Some(sender);
+                Response::SetupComplete
+            }
+            Err(err) => Response::Error(format!("{err:?}")),
+        }),
         Call::SetupReceiver(SetupParams {
             address,
             is_server,
             password,
-        }) => Some(Response::SetupComplete(
+        }) => Some(
             match d4ft4::init_receive(is_server, address, password).await {
                 Ok(receiver) => {
                     *state.receiver.lock().await = Some(receiver);
-                    Ok(())
+                    Response::SetupComplete
                 }
-                Err(err) => Err(format!("{err:?}")),
+                Err(err) => Response::Error(format!("{err:?}")),
             },
-        )),
-        Call::SendText { text } => Some(Response::TextSent(
-            if let Some(connection) = state.sender.lock().await.as_mut() {
-                connection
+        ),
+        Call::SendText { text } => Some(
+            with_locked_conn(&state.sender, |sender| {
+                sender
                     .send_text(text)
-                    .await
-                    .map_err(|err| format!("{:?}", err))
-            } else {
-                Err("connection not initialized".to_string())
-            },
-        )),
-        Call::ReceiveText => Some(Response::TextReceived(
-            if let Some(connection) = state.receiver.lock().await.as_mut() {
-                connection
+                    .map_ok(|_| Response::TextSent)
+                    .boxed()
+            })
+            .await,
+        ),
+        Call::ReceiveText => Some(
+            with_locked_conn(&state.receiver, |receiver| {
+                receiver
                     .receive_text()
-                    .await
-                    .map_err(|err| format!("{:?}", err))
-            } else {
-                Err("connection not initialized".to_string())
-            },
-        )),
+                    .map_ok(Response::TextReceived)
+                    .boxed()
+            })
+            .await,
+        ),
         Call::ChooseFile => {
             #[cfg(not(target_os = "android"))]
             let handle_pick_file_response = {
@@ -200,19 +203,17 @@ async fn handle_message(
                     let state = window.state::<State>();
                     if let Some(response) = response {
                         let mut files = tauri::async_runtime::block_on(state.files.lock());
-                        let message = Response::FileSelected(
-                            if let Some(filename) =
-                                response.name.and_then(|name| dedup_filename(&name, &files))
-                            {
-                                files.push(LoadedFile {
-                                    name: filename.clone(),
-                                    handle: FileHandle::Path(response.path),
-                                });
-                                Ok(filename)
-                            } else {
-                                Err("could not find filename".to_string())
-                            },
-                        );
+                        let message = if let Some(filename) =
+                            response.name.and_then(|name| dedup_filename(&name, &files))
+                        {
+                            files.push(LoadedFile {
+                                name: filename.clone(),
+                                handle: FileHandle::Path(response.path),
+                            });
+                            Response::FileSelected(filename)
+                        } else {
+                            Response::Error("could not find filename".to_string())
+                        };
 
                         tauri::async_runtime::block_on(state.response_tx.send(Message {
                             return_path: return_path.clone(),
@@ -238,7 +239,7 @@ async fn handle_message(
                                 "r",
                                 move |handle| {
                                     let state = window_clone.state::<State>();
-                                    let message = Response::FileSelected(match handle {
+                                    let message = match handle {
                                         Ok(handle) => {
                                             let mut files =
                                                 tauri::async_runtime::block_on(state.files.lock());
@@ -253,13 +254,15 @@ async fn handle_message(
                                                         handle,
                                                     )),
                                                 });
-                                                Ok(filename)
+                                                Response::FileSelected(filename)
                                             } else {
-                                                Err("could not find filename".to_string())
+                                                Response::Error(
+                                                    "could not find filename".to_string(),
+                                                )
                                             }
                                         }
-                                        Err(err) => Err(format!("{err:?}")),
-                                    });
+                                        Err(err) => Response::Error(format!("{err:?}")),
+                                    };
 
                                     tauri::async_runtime::block_on(state.response_tx.send(
                                         Message {
@@ -275,9 +278,9 @@ async fn handle_message(
                             let state = window.state::<State>();
                             tauri::async_runtime::block_on(state.response_tx.send(Message {
                                 return_path: return_path.clone(),
-                                message: Response::FileSelected(Err(format!(
+                                message: Response::Error(format!(
                                     "could not access Android API: {err:?}"
-                                ))),
+                                )),
                             }))
                             .expect("channel send error");
                         }
@@ -297,7 +300,7 @@ async fn handle_message(
             dbg!(&state.files.lock().await[..]);
             None
         }
-        Call::SendFiles { names } => Some(Response::FilesSent({
+        Call::SendFiles { names } => Some({
             let mut files = state.files.lock().await;
             let sending_files = futures::future::try_join_all(
                 files
@@ -318,33 +321,39 @@ async fn handle_message(
                 (Ok(files), Some(sender)) => sender
                     .send_flat_files(files)
                     .await
+                    .map(|_| Response::FilesSent)
                     .map_err(|err| format!("{err:?}")),
                 (Ok(_), None) => Err("connection not initialized".to_string()),
                 (Err(_), _) => Err("could not open file".to_string()),
             }
-        })),
-        Call::ReceiveFileList => Some(Response::ReceivedFileList({
-            match state.receiver.lock().await.as_mut() {
-                Some(receiver) => receiver
+            .into()
+        }),
+        Call::ReceiveFileList => Some(
+            with_locked_conn(&state.receiver, |receiver| {
+                receiver
                     .receive_file_list()
-                    .await
-                    .map_err(|err| format!("{err:?}")),
-                None => Err("connection not initialized".to_string()),
-            }
-        })),
-        Call::ReceiveFiles { allowlist, out_dir } => Some(Response::ReceivedFiles({
+                    .map_ok(Response::ReceivedFileList)
+                    .boxed()
+            })
+            .await,
+        ),
+        Call::ReceiveFiles { allowlist, out_dir } => Some({
             let allowlist = allowlist
                 .iter()
                 .map(|name| PathBuf::from(name))
                 .collect::<Vec<_>>();
-            match state.receiver.lock().await.as_mut() {
-                Some(receiver) => receiver
-                    .receive_flat_files_fs(allowlist, out_dir.as_ref().map(AsRef::as_ref))
-                    .await
-                    .map_err(|err| format!("{err:?}")),
-                None => Err("connection not initialized".to_string()),
-            }
-        })),
+
+            with_locked_conn(&state.receiver, |receiver| {
+                async move {
+                    receiver
+                        .receive_flat_files_fs(allowlist, out_dir.as_ref().map(AsRef::as_ref))
+                        .await
+                        .map(|_| Response::ReceivedFiles)
+                }
+                .boxed()
+            })
+            .await
+        }),
     };
 
     if let Some(response) = message {
@@ -359,6 +368,23 @@ async fn handle_message(
     } else {
         Ok(())
     }
+}
+
+/// Calls an async function on the contained connection handle, and handles converting the result.
+async fn with_locked_conn<Conn, Op>(conn: &Mutex<Option<Conn>>, op: Op) -> Response
+where
+    Conn: Connection,
+    Op: FnOnce(&mut Conn) -> future::BoxFuture<'_, D4FTResult<Response>>,
+{
+    let mut conn_lock = conn.lock().await;
+    let Some(conn_handle) = conn_lock.as_mut() else {
+        return Response::Error("connection not initialized".to_string());
+    };
+
+    op(conn_handle)
+        .await
+        .map_err(|err| format!("{err:?}"))
+        .into()
 }
 
 #[tauri::command]
@@ -394,73 +420,4 @@ fn dedup_filename(filename: &str, files: &[LoadedFile]) -> Option<String> {
     }
     // If this is reached something has gone very wrong (reached usize max value)
     None
-}
-
-#[cfg(not(target_os = "android"))]
-#[tauri::command]
-async fn open_file_dialog(app: tauri::AppHandle, save: bool) -> Result<Option<String>, ()> {
-    Ok(if save {
-        // app.dialog().file().save_file(|_| ());
-        None
-    } else {
-        app.dialog().file().blocking_pick_file().map(|response| {
-            let path = response.path;
-            let mut buf = [0u8; 4];
-            let result =
-                std::fs::File::open(path.clone().join(response.name.clone().unwrap_or_default()))
-                    .and_then(|mut f| f.read_exact(&mut buf));
-            format!(
-                "path: {:?}, name: {:?}, {}",
-                path,
-                response.name,
-                match result {
-                    Ok(_) => format!("{buf:?}"),
-                    Err(err) => format!("{err:?}"),
-                }
-            )
-        })
-    })
-}
-
-#[cfg(target_os = "android")]
-#[tauri::command]
-async fn open_file_dialog(
-    window: tauri::Window,
-    app: tauri::AppHandle,
-    save: bool,
-) -> Result<Option<String>, ()> {
-    Ok(if save {
-        // app.dialog().file().save_file(|_| ());
-        None
-    } else {
-        app.dialog().file().blocking_pick_file().map(|response| {
-            let path = response.path.to_string_lossy().to_string();
-            let mut buf = [0u8; 4];
-            let (tx, rx) = std::sync::mpsc::channel::<Result<std::fs::File, jni::errors::Error>>();
-            window
-                .with_webview(|webview| {
-                    android::get_file(webview.jni_handle(), path, "r", move |file| {
-                        tx.send(file).unwrap()
-                    });
-                })
-                .unwrap();
-            let result: Result<_, Box<dyn std::error::Error>> = rx
-                .recv()
-                .unwrap()
-                .map_err(Into::into)
-                .and_then(|mut f| f.read_exact(&mut buf).map(|_| f).map_err(Into::into));
-            format!(
-                "response: {:?}, {}",
-                response,
-                match result {
-                    Ok(f) => format!(
-                        "buf: {buf:?}, metadata: {:?}, len: {:?}",
-                        f.metadata(),
-                        f.metadata().map(|m| m.len())
-                    ),
-                    Err(err) => format!("error: {err:?}"),
-                }
-            )
-        })
-    })
 }

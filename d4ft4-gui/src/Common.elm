@@ -1,31 +1,8 @@
 port module Common exposing (Call(..), Message, Response(..), callBackend, filesInList, receiveBackendMessage)
 
-import Home exposing (Msg)
-import Json.Decode as Decode exposing (Decoder, decodeValue, field, map, oneOf, string)
+import Json.Decode as Decode exposing (Decoder, decodeValue, field, oneOf, string)
 import Json.Encode as Encode exposing (Value)
 import Material.Icons exposing (password)
-
-
-decodeResult : Decoder error -> Decoder value -> Decoder (Result error value)
-decodeResult errDecoder valDecoder =
-    oneOf
-        [ Decode.map Err (field "Err" errDecoder)
-        , Decode.map Ok (field "Ok" valDecoder)
-        , Decode.fail "Result should be either 'Ok' or 'Err'"
-        ]
-
-
-decodeStringResult : Decoder (Result String String)
-decodeStringResult =
-    decodeResult string string
-
-
-decodeIdentifiedStringResult : ( Int, Value ) -> ( Int, Maybe (Result String String) )
-decodeIdentifiedStringResult ( conn_id, value ) =
-    ( conn_id
-    , decodeValue (decodeResult string string) value
-        |> Result.toMaybe
-    )
 
 
 port callOpenFileDialog : Bool -> Cmd msg
@@ -81,13 +58,14 @@ type alias SetupParams =
 
 
 type Response
-    = SetupComplete (Result String ())
-    | TextSent (Result String ())
-    | TextReceived (Result String String)
-    | FileSelected (Result String String)
-    | FilesSent (Result String ())
-    | ReceivedFileList (Result String (List FileListItem))
-    | ReceivedFiles (Result String ())
+    = SetupComplete
+    | TextSent
+    | TextReceived String
+    | FileSelected String
+    | FilesSent
+    | ReceivedFileList (List FileListItem)
+    | ReceivedFiles
+    | Error String
 
 
 type FileListItem
@@ -115,27 +93,6 @@ encodeCall call =
         , ( "message"
           , Encode.object
                 (case call.message of
-                    -- Setup { connId, address, isServer, mode, password } ->
-                    --     [ ( "name", Encode.string "Setup" )
-                    --     , ( "args"
-                    --       , Encode.object
-                    --             [ ( "conn-id", Encode.int connId )
-                    --             , ( "address", Encode.string address )
-                    --             , ( "is-server", Encode.bool isServer )
-                    --             , ( "mode"
-                    --               , Encode.string
-                    --                     (case mode of
-                    --                         SendTextMode ->
-                    --                             "send-text"
-                    --
-                    --                         ReceiveTextMode ->
-                    --                             "receive-text"
-                    --                     )
-                    --               )
-                    --             , ( "password", Encode.string password )
-                    --             ]
-                    --       )
-                    --     ]
                     SetupSender setupParams ->
                         [ ( "name", Encode.string "SetupSender" )
                         , ( "args"
@@ -213,25 +170,28 @@ decodeResponse =
                     (\messageName ->
                         case messageName of
                             "SetupComplete" ->
-                                Decode.map SetupComplete <| decodeResult Decode.string <| Decode.succeed ()
+                                Decode.succeed SetupComplete
 
                             "TextSent" ->
-                                Decode.map TextSent <| decodeResult Decode.string <| Decode.succeed ()
+                                Decode.succeed TextSent
 
                             "TextReceived" ->
-                                Decode.map TextReceived <| decodeResult Decode.string Decode.string
+                                Decode.field "content" <| Decode.map TextReceived Decode.string
 
                             "FileSelected" ->
-                                Decode.map FileSelected <| decodeResult Decode.string Decode.string
+                                Decode.field "content" <| Decode.map FileSelected Decode.string
 
                             "FilesSent" ->
-                                Decode.map FilesSent <| decodeResult Decode.string <| Decode.succeed ()
+                                Decode.succeed FilesSent
 
                             "ReceivedFileList" ->
-                                Decode.map ReceivedFileList <| decodeResult Decode.string <| Decode.list decodeFileListItem
+                                Decode.field "content" <| Decode.map ReceivedFileList <| Decode.list decodeFileListItem
 
                             "ReceivedFiles" ->
-                                Decode.map ReceivedFiles <| decodeResult Decode.string <| Decode.succeed ()
+                                Decode.succeed ReceivedFiles
+
+                            "Error" ->
+                                Decode.field "content" <| Decode.map Error Decode.string
 
                             _ ->
                                 Decode.fail "Unknown message name"

@@ -1,4 +1,4 @@
-use crate::connection::Connection;
+use crate::connection::{Connection, InitConnection};
 use crate::encoding::{Decryptor, Encryptor};
 use crate::{protocol, D4FTError, D4FTResult, FileListItem};
 use std::path::PathBuf;
@@ -11,7 +11,9 @@ pub struct Sender {
     decryptor: Decryptor<tcp::OwnedReadHalf>,
 }
 
-impl Connection for Sender {
+impl Connection for Sender {}
+
+impl InitConnection for Sender {
     const IS_SENDER: bool = true;
     fn init(
         encryptor: Encryptor<tcp::OwnedWriteHalf>,

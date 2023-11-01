@@ -252,10 +252,7 @@ update msg model =
 
         ReceiveResponse { returnPath, message } ->
             case ( returnPath, message ) of
-                ( _, Common.SetupComplete (Err error) ) ->
-                    ( { model | messages = model.messages ++ [ error ] }, Cmd.none )
-
-                ( [ "Text" ], Common.SetupComplete (Ok _) ) ->
+                ( [ "Text" ], Common.SetupComplete ) ->
                     ( model
                     , Common.callBackend
                         { returnPath = [ "Send" ]
@@ -263,7 +260,7 @@ update msg model =
                         }
                     )
 
-                ( [ "Files" ], Common.SetupComplete (Ok _) ) ->
+                ( [ "Files" ], Common.SetupComplete ) ->
                     ( model
                     , Common.callBackend
                         { returnPath = [ "Send" ]
@@ -271,14 +268,14 @@ update msg model =
                         }
                     )
 
-                ( _, Common.TextSent (Err error) ) ->
-                    ( { model | messages = model.messages ++ [ error ] }, Cmd.none )
-
-                ( _, Common.TextSent (Ok _) ) ->
+                ( _, Common.TextSent ) ->
                     ( { model | isSuccess = True }, Cmd.none )
 
-                ( _, Common.FileSelected (Ok name) ) ->
+                ( _, Common.FileSelected name ) ->
                     ( { model | files = model.files ++ [ initLoadedFile name ] }, Cmd.none )
+
+                ( _, Common.Error error ) ->
+                    ( { model | messages = model.messages ++ [ error ] }, Cmd.none )
 
                 _ ->
                     ( model, Cmd.none )

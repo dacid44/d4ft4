@@ -7,7 +7,9 @@ mod send;
 pub use receive::Receiver;
 pub use send::Sender;
 
-trait Connection {
+pub trait Connection {}
+
+trait InitConnection: Connection {
     const IS_SENDER: bool;
     fn init(
         encryptor: encoding::Encryptor<tcp::OwnedWriteHalf>,
@@ -39,7 +41,7 @@ pub async fn init_receive<A: ToSocketAddrs>(
     }
 }
 
-async fn init_listen<A: ToSocketAddrs, Conn: Connection>(
+async fn init_listen<A: ToSocketAddrs, Conn: InitConnection>(
     address: A,
     password: String,
 ) -> D4FTResult<Conn> {
@@ -102,7 +104,7 @@ async fn init_listen<A: ToSocketAddrs, Conn: Connection>(
     Ok(Conn::init(encryptor, decryptor))
 }
 
-async fn init_connect<A: ToSocketAddrs, Conn: Connection>(
+async fn init_connect<A: ToSocketAddrs, Conn: InitConnection>(
     address: A,
     password: String,
 ) -> D4FTResult<Conn> {

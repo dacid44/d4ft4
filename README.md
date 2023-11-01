@@ -5,7 +5,8 @@
 - [ ] Single file transfer
 - [ ] TODO: Darn, I can't remember lol (an idea I came up with late at night, and then forgot to write down. Oof. I'm putting this here the next morning in case it comes to me later.)
 - [ ] Possibly make file list display into a tree view, where directories are supported (maybe for receive first, and then for send later)
-- [ ] Maybe separate errors into their own response variant, and use the return path to determine where they came from
+- [x] Maybe separate errors into their own response variant, and use the return path to determine where they came from
+  - [ ] Still to do: use return path to determine where the errors came from
 - [ ] Make an error dialog system, and maybe log them somewhere accessible from the home page
   - This might be able to allow for making calls into tasks, but not sure. I'm not sure if I even want to do that. A common error variant would be good regardless though, and would probably simplify both the frontend and the backend code by quite a bit.
 - [ ] Make a settings page managing stuff like:
@@ -17,7 +18,7 @@
 - [x] Possibly move ownership of the socket handles into the `Encryptor` and `Decryptor` types, maybe as `Serializer` and `Deserializer` types
 - [ ] Add ability to select multiple files at once in the file picker, at least on desktop platforms (maybe see if Android supports this, it may not, or at least, not easily)
 - [x] Get rid of total size field, it's really not needed, especially when it's possible that not all of the files will be sent
-  - [ ] Find a better name for `FileListItem`
+  - [ ] Find a better name for `FileListItem` now that `FileList` is no longer a thing
 - [ ] Give functions that don't return immediately a callback to give status updates
 
 
