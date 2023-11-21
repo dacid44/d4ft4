@@ -159,23 +159,27 @@ async fn handle_message(
         }) => Some(match d4ft4::init_send(is_server, address, password).await {
             Ok(sender) => {
                 *state.sender.lock().await = Some(sender);
-                Response::SetupComplete
+                dbg!(Response::SetupComplete)
             }
-            Err(err) => Response::Error(format!("{err:?}")),
+            Err(err) => dbg!(Response::Error(format!("{err:?}"))),
         }),
         Call::SetupReceiver(SetupParams {
             address,
             is_server,
             password,
-        }) => Some(
+        }) => Some({
+            let mut receiver_lock = state.receiver.lock().await;
+            // drop the existing receiver so we don't get "address already in use"
+            // TODO: Figure out how to do this if the sender was listening before
+            *receiver_lock = None;
             match d4ft4::init_receive(is_server, address, password).await {
                 Ok(receiver) => {
-                    *state.receiver.lock().await = Some(receiver);
+                    *receiver_lock = Some(receiver);
                     Response::SetupComplete
                 }
                 Err(err) => Response::Error(format!("{err:?}")),
-            },
-        ),
+            }
+        }),
         Call::SendText { text } => Some(
             with_locked_conn(&state.sender, |sender| {
                 sender

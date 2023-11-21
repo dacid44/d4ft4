@@ -1,11 +1,12 @@
 module Receive exposing (Model, Msg(..), init, subscriptions, update, view)
 
-import Common exposing (Call(..), Response(..))
+import Components
 import Filesize
 import Html exposing (..)
 import Html.Attributes exposing (name, selected, style)
 import Material.Icons as Filled
 import Material.Icons.Types exposing (Coloring(..))
+import Messaging exposing (Call(..), Response(..))
 import Peer
 import Theme
 import W.Button as Button
@@ -81,33 +82,23 @@ init platform =
     }
 
 
-view : pMsg -> (Msg -> pMsg) -> Model -> Html pMsg
-view backMsg convertMsg model =
+view : (Msg -> parentMsg) -> (Html Msg -> Html parentMsg) -> Model -> Html parentMsg
+view convertMsg viewToolbar model =
     Container.view
         [ Container.vertical
         , Container.pad_4
         , Container.gap_3
         , Container.fill
         ]
-        [ Container.view
-            [ Container.horizontal
-            , Container.padBottom_4
-            , Container.gap_3
-            ]
-            [ Button.view [ Button.icon ]
-                { label = [ Filled.arrow_back 24 Inherit ]
-                , onClick = backMsg
+        [ viewToolbar <|
+            ButtonGroup.view
+                [ ButtonGroup.disabled (\mode -> mode == Autodetect || (mode == Files && model.platform == "android"))
+                , ButtonGroup.highlighted <| (==) model.mode
+                ]
+                { items = [ Autodetect, Text, Files ]
+                , toLabel = modeLabel
+                , onClick = ModeChanged
                 }
-            , Html.map convertMsg <|
-                ButtonGroup.view
-                    [ ButtonGroup.disabled (\mode -> mode == Autodetect || (mode == Files && model.platform == "android"))
-                    , ButtonGroup.highlighted (\mode -> mode == model.mode)
-                    ]
-                    { items = [ Autodetect, Text, Files ]
-                    , toLabel = modeLabel
-                    , onClick = ModeChanged
-                    }
-            ]
         , Html.map convertMsg <|
             Container.view
                 [ Container.horizontal
@@ -214,7 +205,7 @@ type Msg
     | Connect
     | ReceiveText
     | ReceiveFiles
-    | ReceiveResponse (Common.Message Common.Response)
+    | ReceiveResponse (Messaging.Message Messaging.Response)
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -259,10 +250,10 @@ update msg model =
             ( { model | isConnected = False }
             , case Peer.addressString model.source of
                 Just address ->
-                    Common.callBackend
+                    Messaging.callBackend
                         { returnPath = [ "Receive", modeString model.mode ]
                         , message =
-                            Common.SetupReceiver
+                            Messaging.SetupReceiver
                                 { address = address
                                 , isServer = model.source.mode == Peer.Listen
                                 , password = model.password
@@ -276,18 +267,18 @@ update msg model =
         -- Maybe not needed anymore, unless maybe in autodetect?
         ReceiveText ->
             ( model
-            , Common.callBackend
+            , Messaging.callBackend
                 { returnPath = [ "Receive" ]
-                , message = Common.ReceiveText
+                , message = Messaging.ReceiveText
                 }
             )
 
         ReceiveFiles ->
             ( model
-            , Common.callBackend
+            , Messaging.callBackend
                 { returnPath = [ "Receive" ]
                 , message =
-                    Common.ReceiveFiles
+                    Messaging.ReceiveFiles
                         { allowlist =
                             model.files
                                 |> List.filter .selected
@@ -304,31 +295,31 @@ update msg model =
 
         ReceiveResponse { returnPath, message } ->
             case ( returnPath, message ) of
-                ( [ "Text" ], Common.SetupComplete ) ->
-                    ( { model | isConnected = True }, Common.callBackend <| { returnPath = [ "Receive" ], message = Common.ReceiveText } )
+                ( [ "Text" ], Messaging.SetupComplete ) ->
+                    ( { model | isConnected = True }, Messaging.callBackend <| { returnPath = [ "Receive" ], message = Messaging.ReceiveText } )
 
-                ( [ "Files" ], Common.SetupComplete ) ->
+                ( [ "Files" ], Messaging.SetupComplete ) ->
                     ( { model | isConnected = True }
-                    , Common.callBackend
+                    , Messaging.callBackend
                         { returnPath = [ "Receive" ]
-                        , message = Common.ReceiveFileList
+                        , message = Messaging.ReceiveFileList
                         }
                     )
 
-                ( _, Common.TextReceived text ) ->
+                ( _, Messaging.TextReceived text ) ->
                     ( { model | text = text }, Cmd.none )
 
-                ( _, Common.ReceivedFileList fileList ) ->
+                ( _, Messaging.ReceivedFileList fileList ) ->
                     ( { model
                         | files =
                             fileList
-                                |> Common.filesInList
+                                |> Messaging.filesInList
                                 |> List.map (\file -> initReceivedFile file.path file.size)
                       }
                     , Cmd.none
                     )
 
-                ( _, Common.Error error ) ->
+                ( _, Messaging.Error error ) ->
                     ( { model | messages = model.messages ++ [ error ] }, Cmd.none )
 
                 _ ->

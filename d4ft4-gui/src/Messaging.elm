@@ -1,8 +1,7 @@
-port module Common exposing (Call(..), Message, Response(..), callBackend, filesInList, receiveBackendMessage)
+port module Messaging exposing (Call(..), Message, Response(..), callBackend, filesInList, receiveBackendMessage)
 
-import Json.Decode as Decode exposing (Decoder, decodeValue, field, oneOf, string)
+import Json.Decode as Decode exposing (Decoder)
 import Json.Encode as Encode exposing (Value)
-import Material.Icons exposing (password)
 
 
 port callOpenFileDialog : Bool -> Cmd msg
@@ -25,20 +24,13 @@ port sendCall : Value -> Cmd msg
 port receiveResponse : (Value -> msg) -> Sub msg
 
 
-type TransferMode
-    = SendTextMode
-    | ReceiveTextMode
-
-
 type alias Message msg =
     { returnPath : List String
     , message : msg
     }
 
 
-type
-    Call
-    -- = Setup { connId : Int, address : String, isServer : Bool, mode : TransferMode, password : String }
+type Call
     = SetupSender SetupParams
     | SetupReceiver SetupParams
     | SendText { text : String }

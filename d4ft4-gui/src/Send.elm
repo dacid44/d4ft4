@@ -1,11 +1,12 @@
 module Send exposing (Model, Msg(..), init, subscriptions, update, view)
 
-import Common
+import Components
 import Html exposing (..)
 import Html.Attributes exposing (style)
 import Material.Icons as Filled
 import Material.Icons.Types exposing (Coloring(..))
 import Maybe.Extra
+import Messaging
 import Peer
 import Theme
 import W.Button as Button
@@ -70,29 +71,20 @@ init =
     }
 
 
-view : parentMsg -> (Msg -> parentMsg) -> Model -> Html parentMsg
-view backMsg convertMsg model =
+view : (Msg -> parentMsg) -> (Html Msg -> Html parentMsg) -> Model -> Html parentMsg
+view convertMsg viewToolbar model =
     Container.view
         [ Container.vertical
         , Container.pad_4
         , Container.gap_3
         , Container.fill
         ]
-        [ Container.view
-            [ Container.horizontal
-            , Container.gap_3
-            ]
-            [ Button.view [ Button.icon ]
-                { label = [ Filled.arrow_back 24 Inherit ]
-                , onClick = backMsg
+        [ viewToolbar <|
+            ButtonGroup.view [ ButtonGroup.highlighted <| (==) model.mode ]
+                { items = [ Text, Files ]
+                , toLabel = modeLabel
+                , onClick = ModeChanged
                 }
-            , Html.map convertMsg <|
-                ButtonGroup.view [ ButtonGroup.highlighted (\mode -> mode == model.mode) ]
-                    { items = [ Text, Files ]
-                    , toLabel = modeLabel
-                    , onClick = ModeChanged
-                    }
-            ]
         , Html.map convertMsg <|
             case model.mode of
                 Text ->
@@ -184,7 +176,7 @@ type Msg
     | DeleteSelectedFiles
     | DestinationMsg Peer.Msg
     | Send
-    | ReceiveResponse (Common.Message Common.Response)
+    | ReceiveResponse (Messaging.Message Messaging.Response)
     | SelectFile
     | PathAdded (Maybe String)
 
@@ -219,9 +211,9 @@ update msg model =
 
         DeleteSelectedFiles ->
             ( { model | files = model.files |> List.filter (not << .selected) }
-            , Common.callBackend
+            , Messaging.callBackend
                 { returnPath = [ "Send" ]
-                , message = Common.DropFiles { names = model.files |> List.filter .selected |> List.map .name }
+                , message = Messaging.DropFiles { names = model.files |> List.filter .selected |> List.map .name }
                 }
             )
 
@@ -236,10 +228,10 @@ update msg model =
             ( { model | isSuccess = False }
             , case Peer.addressString model.destination of
                 Just address ->
-                    Common.callBackend
+                    Messaging.callBackend
                         { returnPath = [ "Send", modeString model.mode ]
                         , message =
-                            Common.SetupSender
+                            Messaging.SetupSender
                                 { address = address
                                 , isServer = model.destination.mode == Peer.Listen
                                 , password = model.password
@@ -252,29 +244,29 @@ update msg model =
 
         ReceiveResponse { returnPath, message } ->
             case ( returnPath, message ) of
-                ( [ "Text" ], Common.SetupComplete ) ->
+                ( [ "Text" ], Messaging.SetupComplete ) ->
                     ( model
-                    , Common.callBackend
+                    , Messaging.callBackend
                         { returnPath = [ "Send" ]
-                        , message = Common.SendText { text = model.text }
+                        , message = Messaging.SendText { text = model.text }
                         }
                     )
 
-                ( [ "Files" ], Common.SetupComplete ) ->
+                ( [ "Files" ], Messaging.SetupComplete ) ->
                     ( model
-                    , Common.callBackend
+                    , Messaging.callBackend
                         { returnPath = [ "Send" ]
-                        , message = Common.SendFiles { names = model.files |> List.filter .selected |> List.map .name }
+                        , message = Messaging.SendFiles { names = model.files |> List.filter .selected |> List.map .name }
                         }
                     )
 
-                ( _, Common.TextSent ) ->
+                ( _, Messaging.TextSent ) ->
                     ( { model | isSuccess = True }, Cmd.none )
 
-                ( _, Common.FileSelected name ) ->
+                ( _, Messaging.FileSelected name ) ->
                     ( { model | files = model.files ++ [ initLoadedFile name ] }, Cmd.none )
 
-                ( _, Common.Error error ) ->
+                ( _, Messaging.Error error ) ->
                     ( { model | messages = model.messages ++ [ error ] }, Cmd.none )
 
                 _ ->
@@ -282,9 +274,9 @@ update msg model =
 
         SelectFile ->
             ( model
-            , Common.callBackend
+            , Messaging.callBackend
                 { returnPath = [ "Send" ]
-                , message = Common.ChooseFile
+                , message = Messaging.ChooseFile
                 }
             )
 

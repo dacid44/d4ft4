@@ -1,9 +1,10 @@
 module FileTransfer exposing (main)
 
 import Browser
-import Common
+import Components exposing (ErrorMessage)
 import Home
 import Json.Decode
+import Messaging
 import Receive
 import Send
 import Theme
@@ -22,6 +23,8 @@ type alias Model =
     , home : Home.Model
     , send : Send.Model
     , receive : Receive.Model
+    , isErrorListOpen : Bool
+    , errors : Components.ErrorMessageQueue
     }
 
 
@@ -31,6 +34,8 @@ init platform =
       , home = Home.init
       , send = Send.init
       , receive = Receive.init platform
+      , isErrorListOpen = False
+      , errors = Components.initErrorMessageQueue
       }
     , Cmd.none
     )
@@ -51,15 +56,25 @@ view model =
             , Container.background Theme.baseBackground
             , Container.styleAttrs [ ( "height", "100%" ) ]
             ]
-            [ case model.page of
+            [ let
+                viewToolbar maybeBackMsg convertMsg =
+                    Components.viewToolbar
+                        { maybeBackMsg = maybeBackMsg
+                        , toggleErrorMsg = ErrorListToggled
+                        , convertMsg = convertMsg
+                        , isErrorListOpen = model.isErrorListOpen
+                        , errors = model.errors
+                        }
+              in
+              case model.page of
                 Home ->
-                    Home.view (PageChanged Send) (PageChanged Receive) HomeMsg model.home
+                    Home.view (PageChanged Send) (PageChanged Receive) HomeMsg (viewToolbar Nothing HomeMsg) model.home
 
                 Send ->
-                    Send.view (PageChanged Home) SendMsg model.send
+                    Send.view SendMsg (viewToolbar (Just Back) SendMsg) model.send
 
                 Receive ->
-                    Receive.view (PageChanged Home) ReceiveMsg model.receive
+                    Receive.view ReceiveMsg (viewToolbar (Just Back) ReceiveMsg) model.receive
             ]
         ]
     }
@@ -67,10 +82,13 @@ view model =
 
 type Msg
     = PageChanged Page
+    | Back
+    | ErrorListToggled
+    | NewErrorMessage ErrorMessage
     | HomeMsg Home.Msg
     | SendMsg Send.Msg
     | ReceiveMsg Receive.Msg
-    | ReceiveResponse (Result Json.Decode.Error (Common.Message Common.Response))
+    | ReceiveResponse (Result Json.Decode.Error (Messaging.Message Messaging.Response))
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -78,6 +96,25 @@ update msg model =
     case msg of
         PageChanged page ->
             ( { model | page = page }, Cmd.none )
+
+        Back ->
+            update (PageChanged Home) model
+
+        ErrorListToggled ->
+            ( { model
+                | isErrorListOpen = not model.isErrorListOpen
+                , errors =
+                    if model.isErrorListOpen then
+                        Components.markErrorsRead model.errors
+
+                    else
+                        model.errors
+              }
+            , Cmd.none
+            )
+
+        NewErrorMessage error ->
+            ( { model | errors = Components.addErrorMessage model.errors error }, Cmd.none )
 
         HomeMsg subMsg ->
             let
@@ -102,19 +139,51 @@ update msg model =
 
         ReceiveResponse maybeMessage ->
             case maybeMessage of
-                Ok ({ returnPath } as fullMessage) ->
+                Ok ({ returnPath, message } as fullMessage) ->
+                    let
+                        modelWithError =
+                            case message of
+                                Messaging.Error error ->
+                                    { model
+                                        | errors =
+                                            Components.addErrorMessage model.errors
+                                                { source = returnPath
+                                                , message = error
+                                                }
+                                    }
+
+                                _ ->
+                                    model
+                    in
                     case returnPath of
                         "Send" :: pathTail ->
-                            update (SendMsg <| Send.ReceiveResponse { fullMessage | returnPath = pathTail }) model
+                            update (SendMsg <| Send.ReceiveResponse { fullMessage | returnPath = pathTail }) modelWithError
 
                         "Receive" :: pathTail ->
-                            update (ReceiveMsg <| Receive.ReceiveResponse { fullMessage | returnPath = pathTail }) model
+                            update (ReceiveMsg <| Receive.ReceiveResponse { fullMessage | returnPath = pathTail }) modelWithError
 
                         _ ->
                             ( model, Cmd.none )
 
-                Err _ ->
-                    ( model, Cmd.none )
+                Err error ->
+                    ( { model
+                        | errors =
+                            Components.addErrorMessage model.errors
+                                { source = [ "Message Parsing" ]
+                                , message = Json.Decode.errorToString error
+                                }
+                      }
+                    , Cmd.none
+                    )
+
+
+
+-- ReceiveResponse maybeResponse ->
+--     case maybeResponse of
+--         Ok ({ returnPath, message } as response) ->
+--             case ( returnPath, message ) of
+--                 ( "Send" :: pathTail, Messaging.Error ) ->
+--                     ( model, Cmd.none )
 
 
 subscriptions : Model -> Sub Msg
@@ -122,7 +191,7 @@ subscriptions model =
     Sub.batch
         [ Sub.map SendMsg (Send.subscriptions model.send)
         , Sub.map ReceiveMsg (Receive.subscriptions model.receive)
-        , Common.receiveBackendMessage ReceiveResponse
+        , Messaging.receiveBackendMessage ReceiveResponse
         ]
 
 

@@ -33,7 +33,7 @@ futures = "0.3"
 wry = { version = "0.33", default-features = false }
 #console-subscriber = "0.1.10"
 
-[target.'cfg(android)'.dependencies]
+[target.'cfg(target_os = "android")'.dependencies]
 jni = "0.21.1"
 
 [features]

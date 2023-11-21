@@ -14,7 +14,7 @@
             "elm-community/maybe-extra": "5.3.0",
             "icidasset/elm-material-icons": "11.0.0",
             "uncover-co/elm-theme": "2.0.0",
-            "uncover-co/elm-widgets": "2.18.0"
+            "uncover-co/elm-widgets": "2.19.0"
         },
         "indirect": {
             "avh4/elm-color": "1.0.0",

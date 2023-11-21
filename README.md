@@ -1,8 +1,9 @@
 # D4FT4
 
 ## To Do:
-- [ ] Basic text transfer
-- [ ] Single file transfer
+- [x] Basic text transfer
+- [x] Single file transfer
+- [ ] Folder transfer
 - [ ] TODO: Darn, I can't remember lol (an idea I came up with late at night, and then forgot to write down. Oof. I'm putting this here the next morning in case it comes to me later.)
 - [ ] Possibly make file list display into a tree view, where directories are supported (maybe for receive first, and then for send later)
 - [x] Maybe separate errors into their own response variant, and use the return path to determine where they came from

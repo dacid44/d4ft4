@@ -1,5 +1,6 @@
 module Home exposing (Model, Msg, init, update, view)
 
+import Components
 import Html exposing (..)
 import W.Button as Button
 import W.Container as Container
@@ -17,14 +18,14 @@ init =
     }
 
 
-view : pMsg -> pMsg -> (Msg -> pMsg) -> Model -> Html pMsg
-view openSend openReceive convertMsg model =
+view : pMsg -> pMsg -> (Msg -> pMsg) -> (Html Msg -> Html pMsg) -> Model -> Html pMsg
+view openSend openReceive convertMsg viewToolbar model =
     Container.view
         [ Container.vertical
         , Container.pad_4
         , Container.gap_3
         ]
-        [ Heading.view [] [ text "Home" ]
+        [ viewToolbar <| Heading.view [] [ text "Home" ]
         , Container.view
             [ Container.horizontal
             , Container.gap_3
